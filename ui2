@@ -562,6 +562,26 @@ end
 
 --[[ MÉTODOS PARA ELEMENTOS FILHOS ]]--
 
+function SevereUI:UpdateElementsVisibility(state)
+    -- Atualizar tabs
+    for _, tab in ipairs(self.tabs) do
+        tab.button.Visible = state
+        tab.buttonText.Visible = state
+        tab.container.Visible = state and (tab == self.currentTab)
+    end
+    
+    -- Atualizar elementos principais
+    for _, element in ipairs(self.elements) do
+        if element then  -- Verificar se o elemento existe
+            if type(element) == "table" and element.SetVisible then
+                element:SetVisible(state)
+            elseif element.Visible ~= nil then  -- Verificar se a propriedade Visible existe
+                element.Visible = state
+            end
+        end
+    end
+end
+
 function SevereUI.Element:SetVisible(state)
     self.Visible = state
     if self.background then self.background.Visible = state end
