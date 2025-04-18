@@ -1,0 +1,421 @@
+--[[
+    RLua UI Library Completa
+    Versão 2.0 - Recursos Avançados
+]]
+
+local UILib = {
+    Colors = {
+        Font = {255, 255, 255},
+        Main = {25, 25, 25},
+        Background = {20, 20, 20},
+        Accent = {255, 50, 255},
+        Outline = {40, 40, 40},
+        Disabled = {100, 100, 100},
+        Hover = {50, 50, 50},
+        Success = {0, 200, 0},
+        Danger = {200, 0, 0}
+    },
+    Windows = {},
+    Notifications = {},
+    Active = true,
+    Fonts = {"UI", "System", "Plex", "Monospace"},
+    InputBuffer = "",
+    LastInput = 0
+}
+
+local Drawing = Drawing
+local isleftclicked = isleftclicked
+local isleftpressed = isleftpressed
+local getmouseposition = getmouseposition
+local tick = tick
+
+--[[
+    Core Functions
+]]
+
+function UILib:MouseInArea(area)
+    local mouse = getmouseposition()
+    return mouse.x > area[1] and mouse.y > area[2] and mouse.x < area[3] and mouse.y < area[4]
+end
+
+function UILib:CreateWindow(name, size, position)
+    local window = {
+        Name = name,
+        Size = size,
+        Position = position or {100, 100},
+        Elements = {},
+        Tabs = {},
+        ActiveTab = 1,
+        ScrollOffset = 0,
+        Dragging = false,
+        DragOffset = {0, 0}
+    }
+
+    -- Window Methods
+    function window:AddTab(name)
+        local tab = {
+            Name = name,
+            Elements = {},
+            ScrollOffset = 0
+        }
+        table.insert(self.Tabs, tab)
+        return tab
+    end
+
+    function window:Render()
+        if not UILib.Active then return end
+        
+        -- Window Background
+        self:DrawElement("Square", {
+            Position = self.Position,
+            Size = self.Size,
+            Color = UILib.Colors.Main,
+            Filled = true
+        })
+
+        -- Title Bar
+        self:DrawElement("Square", {
+            Position = {self.Position[1], self.Position[2]},
+            Size = {self.Size[1], 30},
+            Color = UILib.Colors.Accent,
+            Filled = true
+        })
+
+        -- Title Text
+        self:DrawElement("Text", {
+            Position = {self.Position[1] + 10, self.Position[2] + 5},
+            Text = self.Name,
+            Color = UILib.Colors.Font,
+            Size = 18
+        })
+
+        -- Content Area
+        local contentY = self.Position[2] + 40
+        local contentHeight = self.Size[2] - 50
+        
+        -- Tabs
+        local tabWidth = self.Size[1] / #self.Tabs
+        for i, tab in ipairs(self.Tabs) do
+            local tabX = self.Position[1] + (i-1)*tabWidth
+            if self:DrawTab(tabX, self.Position[2] + 30, tabWidth, 20, tab.Name, i == self.ActiveTab) then
+                self.ActiveTab = i
+            end
+        end
+
+        -- Render Active Tab
+        local activeTab = self.Tabs[self.ActiveTab]
+        if activeTab then
+            local elementY = contentY
+            for _, element in ipairs(activeTab.Elements) do
+                element:Render({self.Position[1] + 10, elementY})
+                elementY = elementY + element.Height + 10
+            end
+        end
+    end
+
+    function window:DrawElement(type, params)
+        local element = Drawing.new(type)
+        for k, v in pairs(params) do
+            if k == "Position" or k == "Size" then
+                element[k] = Vector2.new(v[1], v[2])
+            else
+                element[k] = v
+            end
+        end
+        element.Visible = true
+        task.delay(0.1, function() element:Remove() end)
+    end
+
+    function window:DrawTab(x, y, w, h, text, active)
+        local color = active and UILib.Colors.Accent or UILib.Colors.Main
+        self:DrawElement("Square", {
+            Position = {x, y},
+            Size = {w, h},
+            Color = color,
+            Filled = true
+        })
+
+        self:DrawElement("Text", {
+            Position = {x + 5, y + 3},
+            Text = text,
+            Color = UILib.Colors.Font,
+            Size = 14
+        })
+
+        return self:MouseInArea({x, y, x + w, y + h}) and isleftclicked()
+    end
+
+    table.insert(UILib.Windows, window)
+    return window
+end
+
+--[[
+    UI Elements
+]]
+
+function UILib.CreateButton(text, callback)
+    local button = {
+        Text = text,
+        Callback = callback,
+        Width = 120,
+        Height = 30,
+        State = "normal"
+    }
+
+    function button:Render(position)
+        local color = self.State == "hover" and UILib.Colors.Hover or UILib.Colors.Main
+        UILib.Windows[1]:DrawElement("Square", {
+            Position = position,
+            Size = {self.Width, self.Height},
+            Color = color,
+            Filled = true
+        })
+
+        UILib.Windows[1]:DrawElement("Text", {
+            Position = {position[1] + 10, position[2] + 5},
+            Text = self.Text,
+            Color = UILib.Colors.Font,
+            Size = 14
+        })
+
+        if UILib:MouseInArea({position[1], position[2], position[1] + self.Width, position[2] + self.Height}) then
+            self.State = isleftpressed() and "active" or "hover"
+            if isleftclicked() then
+                self.Callback()
+            end
+        else
+            self.State = "normal"
+        end
+    end
+
+    return button
+end
+
+function UILib.CreateSlider(min, max, value, callback)
+    local slider = {
+        Min = min,
+        Max = max,
+        Value = value,
+        Width = 200,
+        Height = 20,
+        Dragging = false
+    }
+
+    function slider:Render(position)
+        -- Track
+        UILib.Windows[1]:DrawElement("Square", {
+            Position = position,
+            Size = {self.Width, 5},
+            Color = UILib.Colors.Main,
+            Filled = true
+        })
+
+        -- Thumb
+        local ratio = (self.Value - self.Min) / (self.Max - self.Min)
+        local thumbX = position[1] + (self.Width * ratio)
+        UILib.Windows[1]:DrawElement("Square", {
+            Position = {thumbX - 5, position[2] - 5},
+            Size = {10, 15},
+            Color = UILib.Colors.Accent,
+            Filled = true
+        })
+
+        -- Interaction
+        local area = {position[1], position[2] - 10, position[1] + self.Width, position[2] + 10}
+        if UILib:MouseInArea(area) then
+            if isleftpressed() then
+                local mouseX = getmouseposition().x
+                self.Value = self.Min + ((mouseX - position[1]) / self.Width) * (self.Max - self.Min)
+                self.Value = math.clamp(self.Value, self.Min, self.Max)
+                if callback then callback(self.Value) end
+            end
+        end
+    end
+
+    return slider
+end
+
+function UILib.CreateDropdown(options, selected, callback)
+    local dropdown = {
+        Options = options,
+        Selected = selected,
+        Open = false,
+        Width = 150,
+        ItemHeight = 25
+    }
+
+    function dropdown:Render(position)
+        -- Main Box
+        UILib.Windows[1]:DrawElement("Square", {
+            Position = position,
+            Size = {self.Width, self.ItemHeight},
+            Color = UILib.Colors.Main,
+            Filled = true
+        })
+
+        -- Selected Text
+        UILib.Windows[1]:DrawElement("Text", {
+            Position = {position[1] + 10, position[2] + 5},
+            Text = self.Selected,
+            Color = UILib.Colors.Font,
+            Size = 14
+        })
+
+        -- Arrow
+        UILib.Windows[1]:DrawElement("Text", {
+            Position = {position[1] + self.Width - 20, position[2] + 5},
+            Text = self.Open and "▲" or "▼",
+            Color = UILib.Colors.Font,
+            Size = 14
+        })
+
+        -- Dropdown Items
+        if self.Open then
+            for i, option in ipairs(self.Options) do
+                local itemPos = {position[1], position[2] + self.ItemHeight * i}
+                UILib.Windows[1]:DrawElement("Square", {
+                    Position = itemPos,
+                    Size = {self.Width, self.ItemHeight},
+                    Color = UILib.Colors.Main,
+                    Filled = true
+                })
+
+                UILib.Windows[1]:DrawElement("Text", {
+                    Position = {itemPos[1] + 10, itemPos[2] + 5},
+                    Text = option,
+                    Color = UILib.Colors.Font,
+                    Size = 14
+                })
+
+                if UILib:MouseInArea({itemPos[1], itemPos[2], itemPos[1] + self.Width, itemPos[2] + self.ItemHeight}) then
+                    if isleftclicked() then
+                        self.Selected = option
+                        self.Open = false
+                        if callback then callback(option) end
+                    end
+                end
+            end
+        end
+
+        -- Toggle State
+        if UILib:MouseInArea({position[1], position[2], position[1] + self.Width, position[2] + self.ItemHeight}) then
+            if isleftclicked() then
+                self.Open = not self.Open
+            end
+        end
+    end
+
+    return dropdown
+end
+
+--[[
+    Notification System
+]]
+
+function UILib:Notify(title, message, duration)
+    local notification = {
+        Title = title,
+        Message = message,
+        StartTime = tick(),
+        Duration = duration or 5,
+        Position = {10, 10 + (#self.Notifications * 80)}
+    }
+
+    table.insert(self.Notifications, 1, notification)
+
+    spawn(function()
+        wait(duration)
+        for i, n in ipairs(self.Notifications) do
+            if n == notification then
+                table.remove(self.Notifications, i)
+                break
+            end
+        end
+    end)
+end
+
+function UILib:RenderNotifications()
+    for i, notification in ipairs(self.Notifications) do
+        local alpha = 1 - ((tick() - notification.StartTime) / notification.Duration)
+        
+        self.Windows[1]:DrawElement("Square", {
+            Position = {notification.Position[1], notification.Position[2] + (i-1)*85},
+            Size = {300, 80},
+            Color = {0, 0, 0, alpha * 0.8},
+            Filled = true
+        })
+
+        self.Windows[1]:DrawElement("Text", {
+            Position = {notification.Position[1] + 10, notification.Position[2] + 10 + (i-1)*85},
+            Text = notification.Title,
+            Color = {255, 255, 255, alpha},
+            Size = 16
+        })
+
+        self.Windows[1]:DrawElement("Text", {
+            Position = {notification.Position[1] + 10, notification.Position[2] + 35 + (i-1)*85},
+            Text = notification.Message,
+            Color = {200, 200, 200, alpha},
+            Size = 14
+        })
+    end
+end
+
+--[[
+    Input Handling
+]]
+
+spawn(function()
+    while wait() do
+        if UILib.Active then
+            -- Handle Keyboard Input
+            for i = 32, 126 do
+                if iskeydown(string.char(i)) and tick() - UILib.LastInput > 0.1 then
+                    UILib.InputBuffer = UILib.InputBuffer .. string.char(i):lower()
+                    UILib.LastInput = tick()
+                end
+            end
+
+            -- Handle Backspace
+            if iskeydown("Backspace") and #UILib.InputBuffer > 0 then
+                UILib.InputBuffer = UILib.InputBuffer:sub(1, -2)
+                wait(0.1)
+            end
+        end
+    end
+end)
+
+--[[
+    Main Loop
+]]
+
+spawn(function()
+    while wait(0.01) do
+        if UILib.Active then
+            -- Clear Screen
+            Drawing.clear()
+
+            -- Update Mouse
+            local mouse = getmouseposition()
+            
+            -- Render All Windows
+            for _, window in ipairs(UILib.Windows) do
+                window:Render()
+            end
+
+            -- Render Notifications
+            UILib:RenderNotifications()
+
+            -- Draw Cursor
+            Drawing.new("Circle"):Set({
+                Position = Vector2.new(mouse.x, mouse.y),
+                Color = UILib.Colors.Accent,
+                Radius = 5,
+                Filled = true,
+                Visible = true
+            })
+        end
+    end
+end)
+
+return UILib
