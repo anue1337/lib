@@ -564,19 +564,21 @@ end
 
 function SevereUI:UpdateElementsVisibility(state)
     -- Atualizar tabs
-    for _, tab in ipairs(self.tabs) do
-        tab.button.Visible = state
-        tab.buttonText.Visible = state
-        tab.container.Visible = state and (tab == self.currentTab)
+    for _, tab in ipairs(self.tabs or {}) do
+        if tab and tab.button then tab.button.Visible = state end
+        if tab and tab.buttonText then tab.buttonText.Visible = state end
+        if tab and tab.container then 
+            tab.container.Visible = state and (tab == self.currentTab)
+        end
     end
     
     -- Atualizar elementos principais
-    for _, element in ipairs(self.elements) do
+    for _, element in ipairs(self.elements or {}) do
         if element then  -- Verificar se o elemento existe
-            if type(element) == "table" and element.SetVisible then
-                element:SetVisible(state)
-            elseif element.Visible ~= nil then  -- Verificar se a propriedade Visible existe
-                element.Visible = state
+            if type(element) == "table" and type(element.SetVisible) == "function" then
+                pcall(function() element:SetVisible(state) end)
+            elseif type(element) == "table" and element.Visible ~= nil then
+                pcall(function() element.Visible = state end)
             end
         end
     end
