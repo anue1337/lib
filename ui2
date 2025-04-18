@@ -91,7 +91,6 @@ function SevereUI:CreateMainFrame()
     self.frame.Position = self.config.position
     self.frame.Color = self.config.theme.primary
     self.frame.Transparency = self.config.transparency
-    self.frame.Rounding = 2
 end
 
 function SevereUI:CreateModernTitleBar()
