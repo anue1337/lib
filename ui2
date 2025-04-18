@@ -127,6 +127,19 @@ function SevereUI:CreateModernTitleBar()
     self.titleUnderline.Position = {self.titleText.Position[1], self.titleText.Position[2] + 20}
     self.titleUnderline.Color = self.config.theme.accent
     self.titleUnderline.Filled = true
+
+    if Drawing.CalcTextWidth and options.text then
+    local textWidth = Drawing.CalcTextWidth(options.text) or 0
+    text.Position = {
+        options.position[1] + (options.size[1]/2) - (textWidth/2),
+        options.position[2] + (options.size[2]/2) - 7
+    }
+else
+    text.Position = {
+        options.position[1] + 10,
+        options.position[2] + (options.size[2]/2) - 7
+    }
+end
 end
 
 function SevereUI:CreateTabsContainer()
@@ -150,7 +163,6 @@ function SevereUI:CreateButton(options)
     btn.main.Position = options.position
     btn.main.Color = self.config.theme.secondary
     btn.main.Filled = true
-    btn.main.Rounding = 4
     
     btn.effect.Size = options.size
     btn.effect.Position = options.position
@@ -198,7 +210,6 @@ function SevereUI:CreateDropdown(options)
     dropdown.header.Position = options.position
     dropdown.header.Color = self.config.theme.secondary
     dropdown.header.Filled = true
-    dropdown.header.Rounding = 4
     
     -- Ícone animado
     dropdown.icon = Drawing.new("Triangle")
