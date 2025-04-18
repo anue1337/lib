@@ -1,6 +1,7 @@
 --[[
     RLua UI Library Completa
-    Versão 2.0 - Recursos Avançados
+    Versão 3.0 - Recursos Avançados Com Groupbox Support
+    Fixed by Claude
 ]]
 
 local UILib = {
@@ -23,11 +24,47 @@ local UILib = {
     LastInput = 0
 }
 
-local Drawing = Drawing
-local isleftclicked = isleftclicked
-local isleftpressed = isleftpressed
-local getmouseposition = getmouseposition
-local tick = tick
+-- Check if we're in the proper environment
+local env_success, Drawing = pcall(function() return Drawing end)
+if not env_success then
+    warn("Drawing library not found. Using fallback implementation.")
+    Drawing = {
+        new = function() 
+            return {
+                Set = function() end,
+                Remove = function() end
+            }
+        },
+        clear = function() end
+    }
+end
+
+-- Safe function calls
+local function safeCall(fn, ...)
+    if type(fn) == "function" then
+        return fn(...)
+    end
+    return nil
+end
+
+local isleftclicked = isleftclicked or function() return false end
+local isleftpressed = isleftpressed or function() return false end
+local getmouseposition = getmouseposition or function() return {x=0, y=0} end
+local tick = tick or function() return os.time() end
+local wait = wait or function(t) 
+    local start = tick()
+    while tick() - start < (t or 0.03) do end
+end
+local spawn = spawn or function(f) f() end
+local task = task or {
+    delay = function(t, f) 
+        spawn(function()
+            wait(t)
+            f()
+        end)
+    end
+}
+local iskeydown = iskeydown or function() return false end
 
 --[[
     Core Functions
@@ -56,14 +93,95 @@ function UILib:CreateWindow(name, size, position)
         local tab = {
             Name = name,
             Elements = {},
-            ScrollOffset = 0
+            ScrollOffset = 0,
+            Groupboxes = {}
         }
+        
+        function tab:AddGroupbox(name)
+            local groupbox = {
+                Name = name,
+                Elements = {},
+                Position = {0, 0},
+                Size = {self.Parent and self.Parent.Size[1] - 40 or 200, 200},
+                Collapsed = false,
+                Parent = self
+            }
+            
+            function groupbox:AddElement(element)
+                table.insert(self.Elements, element)
+                return element
+            end
+            
+            function groupbox:Render(position)
+                -- Header
+                UILib.Windows[1]:DrawElement("Square", {
+                    Position = position,
+                    Size = {self.Size[1], 25},
+                    Color = UILib.Colors.Accent,
+                    Filled = true
+                })
+                
+                UILib.Windows[1]:DrawElement("Text", {
+                    Position = {position[1] + 5, position[2] + 5},
+                    Text = self.Name,
+                    Color = UILib.Colors.Font,
+                    Size = 14
+                })
+                
+                -- Collapse button
+                UILib.Windows[1]:DrawElement("Text", {
+                    Position = {position[1] + self.Size[1] - 20, position[2] + 5},
+                    Text = self.Collapsed and "+" or "-",
+                    Color = UILib.Colors.Font,
+                    Size = 14
+                })
+                
+                if UILib:MouseInArea({position[1] + self.Size[1] - 20, position[2], position[1] + self.Size[1], position[2] + 25}) and isleftclicked() then
+                    self.Collapsed = not self.Collapsed
+                end
+                
+                if not self.Collapsed then
+                    -- Content
+                    UILib.Windows[1]:DrawElement("Square", {
+                        Position = {position[1], position[2] + 25},
+                        Size = {self.Size[1], self.Size[2] - 25},
+                        Color = UILib.Colors.Main,
+                        Filled = true
+                    })
+                    
+                    -- Elements
+                    local elementY = position[2] + 35
+                    for _, element in ipairs(self.Elements) do
+                        element:Render({position[1] + 10, elementY})
+                        elementY = elementY + element.Height + 10
+                    end
+                    
+                    return 25 + self.Size[2]
+                else
+                    return 25
+                end
+            end
+            
+            table.insert(self.Groupboxes, groupbox)
+            return groupbox
+        end
+        
         table.insert(self.Tabs, tab)
         return tab
     end
 
     function window:Render()
         if not UILib.Active then return end
+        
+        -- Handle dragging
+        if self.Dragging then
+            local mouse = getmouseposition()
+            self.Position = {mouse.x - self.DragOffset[1], mouse.y - self.DragOffset[2]}
+            
+            if not isleftpressed() then
+                self.Dragging = false
+            end
+        end
         
         -- Window Background
         self:DrawElement("Square", {
@@ -88,42 +206,70 @@ function UILib:CreateWindow(name, size, position)
             Color = UILib.Colors.Font,
             Size = 18
         })
+        
+        -- Handle title bar dragging
+        if UILib:MouseInArea({self.Position[1], self.Position[2], self.Position[1] + self.Size[1], self.Position[2] + 30}) and isleftpressed() then
+            if not self.Dragging then
+                local mouse = getmouseposition()
+                self.DragOffset = {mouse.x - self.Position[1], mouse.y - self.Position[2]}
+                self.Dragging = true
+            end
+        end
 
         -- Content Area
         local contentY = self.Position[2] + 40
         local contentHeight = self.Size[2] - 50
         
         -- Tabs
-        local tabWidth = self.Size[1] / #self.Tabs
-        for i, tab in ipairs(self.Tabs) do
-            local tabX = self.Position[1] + (i-1)*tabWidth
-            if self:DrawTab(tabX, self.Position[2] + 30, tabWidth, 20, tab.Name, i == self.ActiveTab) then
-                self.ActiveTab = i
+        if #self.Tabs > 0 then
+            local tabWidth = self.Size[1] / #self.Tabs
+            for i, tab in ipairs(self.Tabs) do
+                local tabX = self.Position[1] + (i-1)*tabWidth
+                if self:DrawTab(tabX, self.Position[2] + 30, tabWidth, 20, tab.Name, i == self.ActiveTab) then
+                    self.ActiveTab = i
+                end
             end
-        end
 
-        -- Render Active Tab
-        local activeTab = self.Tabs[self.ActiveTab]
-        if activeTab then
-            local elementY = contentY
-            for _, element in ipairs(activeTab.Elements) do
-                element:Render({self.Position[1] + 10, elementY})
-                elementY = elementY + element.Height + 10
+            -- Render Active Tab
+            local activeTab = self.Tabs[self.ActiveTab]
+            if activeTab then
+                local elementY = contentY
+                
+                -- Render groupboxes first
+                for _, groupbox in ipairs(activeTab.Groupboxes) do
+                    local height = groupbox:Render({self.Position[1] + 10, elementY})
+                    elementY = elementY + height + 10
+                }
+                
+                -- Then render regular elements
+                for _, element in ipairs(activeTab.Elements) do
+                    element:Render({self.Position[1] + 10, elementY})
+                    elementY = elementY + element.Height + 10
+                end
             end
         end
     end
 
     function window:DrawElement(type, params)
         local element = Drawing.new(type)
-        for k, v in pairs(params) do
-            if k == "Position" or k == "Size" then
-                element[k] = Vector2.new(v[1], v[2])
-            else
-                element[k] = v
+        local safeSet = function(obj, props)
+            for k, v in pairs(props) do
+                pcall(function()
+                    if k == "Position" or k == "Size" then
+                        obj[k] = Vector2.new(v[1], v[2])
+                    else
+                        obj[k] = v
+                    end
+                end)
             end
         end
+        
+        safeSet(element, params)
         element.Visible = true
-        task.delay(0.1, function() element:Remove() end)
+        
+        task.delay(0.1, function() 
+            pcall(function() element:Remove() end) 
+        end)
     end
 
     function window:DrawTab(x, y, w, h, text, active)
@@ -181,7 +327,7 @@ function UILib.CreateButton(text, callback)
         if UILib:MouseInArea({position[1], position[2], position[1] + self.Width, position[2] + self.Height}) then
             self.State = isleftpressed() and "active" or "hover"
             if isleftclicked() then
-                self.Callback()
+                safeCall(self.Callback)
             end
         else
             self.State = "normal"
@@ -197,14 +343,22 @@ function UILib.CreateSlider(min, max, value, callback)
         Max = max,
         Value = value,
         Width = 200,
-        Height = 20,
+        Height = 40,
         Dragging = false
     }
 
     function slider:Render(position)
+        -- Label
+        UILib.Windows[1]:DrawElement("Text", {
+            Position = {position[1], position[2]},
+            Text = tostring(math.floor(self.Value * 100) / 100),
+            Color = UILib.Colors.Font,
+            Size = 14
+        })
+        
         -- Track
         UILib.Windows[1]:DrawElement("Square", {
-            Position = position,
+            Position = {position[1], position[2] + 20},
             Size = {self.Width, 5},
             Color = UILib.Colors.Main,
             Filled = true
@@ -214,25 +368,62 @@ function UILib.CreateSlider(min, max, value, callback)
         local ratio = (self.Value - self.Min) / (self.Max - self.Min)
         local thumbX = position[1] + (self.Width * ratio)
         UILib.Windows[1]:DrawElement("Square", {
-            Position = {thumbX - 5, position[2] - 5},
+            Position = {thumbX - 5, position[2] + 15},
             Size = {10, 15},
             Color = UILib.Colors.Accent,
             Filled = true
         })
 
         -- Interaction
-        local area = {position[1], position[2] - 10, position[1] + self.Width, position[2] + 10}
+        local area = {position[1], position[2] + 10, position[1] + self.Width, position[2] + 30}
         if UILib:MouseInArea(area) then
             if isleftpressed() then
                 local mouseX = getmouseposition().x
                 self.Value = self.Min + ((mouseX - position[1]) / self.Width) * (self.Max - self.Min)
-                self.Value = math.clamp(self.Value, self.Min, self.Max)
-                if callback then callback(self.Value) end
+                self.Value = math.max(self.Min, math.min(self.Value, self.Max)) -- clamp
+                if callback then safeCall(callback, self.Value) end
             end
         end
     end
 
     return slider
+end
+
+function UILib.CreateToggle(text, state, callback)
+    local toggle = {
+        Text = text,
+        State = state or false,
+        Width = 120,
+        Height = 30
+    }
+
+    function toggle:Render(position)
+        -- Label
+        UILib.Windows[1]:DrawElement("Text", {
+            Position = {position[1], position[2] + 5},
+            Text = self.Text,
+            Color = UILib.Colors.Font,
+            Size = 14
+        })
+        
+        -- Toggle box
+        local color = self.State and UILib.Colors.Success or UILib.Colors.Danger
+        UILib.Windows[1]:DrawElement("Square", {
+            Position = {position[1] + self.Width - 30, position[2] + 5},
+            Size = {20, 20},
+            Color = color,
+            Filled = true
+        })
+        
+        if UILib:MouseInArea({position[1], position[2], position[1] + self.Width, position[2] + self.Height}) then
+            if isleftclicked() then
+                self.State = not self.State
+                if callback then safeCall(callback, self.State) end
+            end
+        end
+    end
+
+    return toggle
 end
 
 function UILib.CreateDropdown(options, selected, callback)
@@ -241,7 +432,8 @@ function UILib.CreateDropdown(options, selected, callback)
         Selected = selected,
         Open = false,
         Width = 150,
-        ItemHeight = 25
+        ItemHeight = 25,
+        Height = 25 -- Base height
     }
 
     function dropdown:Render(position)
@@ -269,6 +461,9 @@ function UILib.CreateDropdown(options, selected, callback)
             Size = 14
         })
 
+        -- Dynamic height based on open state
+        self.Height = self.Open and (self.ItemHeight * (#self.Options + 1)) or self.ItemHeight
+
         -- Dropdown Items
         if self.Open then
             for i, option in ipairs(self.Options) do
@@ -291,7 +486,7 @@ function UILib.CreateDropdown(options, selected, callback)
                     if isleftclicked() then
                         self.Selected = option
                         self.Open = false
-                        if callback then callback(option) end
+                        if callback then safeCall(callback, option) end
                     end
                 end
             end
@@ -306,6 +501,269 @@ function UILib.CreateDropdown(options, selected, callback)
     end
 
     return dropdown
+end
+
+function UILib.CreateTextbox(placeholder, callback)
+    local textbox = {
+        Text = "",
+        Placeholder = placeholder,
+        Width = 200,
+        Height = 30,
+        Active = false
+    }
+
+    function textbox:Render(position)
+        local color = self.Active and UILib.Colors.Hover or UILib.Colors.Main
+        
+        -- Textbox background
+        UILib.Windows[1]:DrawElement("Square", {
+            Position = position,
+            Size = {self.Width, self.Height},
+            Color = color,
+            Filled = true
+        })
+
+        -- Text content
+        local displayText = #self.Text > 0 and self.Text or self.Placeholder
+        local textColor = #self.Text > 0 and UILib.Colors.Font or UILib.Colors.Disabled
+        
+        UILib.Windows[1]:DrawElement("Text", {
+            Position = {position[1] + 10, position[2] + 5},
+            Text = displayText,
+            Color = textColor,
+            Size = 14
+        })
+
+        -- Handle input
+        if UILib:MouseInArea({position[1], position[2], position[1] + self.Width, position[2] + self.Height}) then
+            if isleftclicked() then
+                self.Active = true
+                UILib.InputBuffer = self.Text
+            end
+        elseif isleftclicked() then
+            if self.Active then
+                self.Active = false
+                self.Text = UILib.InputBuffer
+                if callback then safeCall(callback, self.Text) end
+            end
+        end
+        
+        if self.Active then
+            self.Text = UILib.InputBuffer
+        end
+    end
+
+    return textbox
+}
+
+function UILib.CreateColorPicker(default, callback)
+    local colorPicker = {
+        Color = default or {255, 255, 255},
+        Open = false,
+        Width = 30,
+        Height = 30,
+        PickerSize = 150
+    }
+
+    function colorPicker:Render(position)
+        -- Color preview box
+        UILib.Windows[1]:DrawElement("Square", {
+            Position = position,
+            Size = {self.Width, self.Height},
+            Color = self.Color,
+            Filled = true
+        })
+        
+        -- Toggle open/close on click
+        if UILib:MouseInArea({position[1], position[2], position[1] + self.Width, position[2] + self.Height}) then
+            if isleftclicked() then
+                self.Open = not self.Open
+            end
+        end
+        
+        -- Color picker UI
+        if self.Open then
+            local pickerPos = {position[1], position[2] + self.Height + 5}
+            
+            -- Background
+            UILib.Windows[1]:DrawElement("Square", {
+                Position = pickerPos,
+                Size = {self.PickerSize, self.PickerSize},
+                Color = UILib.Colors.Main,
+                Filled = true
+            })
+            
+            -- RGB sliders
+            local sliderY = pickerPos[2] + 10
+            
+            -- Red slider
+            UILib.Windows[1]:DrawElement("Text", {
+                Position = {pickerPos[1] + 10, sliderY},
+                Text = "R: " .. self.Color[1],
+                Color = {255, 0, 0},
+                Size = 14
+            })
+            
+            UILib.Windows[1]:DrawElement("Square", {
+                Position = {pickerPos[1] + 10, sliderY + 20},
+                Size = {self.PickerSize - 20, 5},
+                Color = {100, 0, 0},
+                Filled = true
+            })
+            
+            UILib.Windows[1]:DrawElement("Square", {
+                Position = {pickerPos[1] + 10 + ((self.PickerSize - 20) * (self.Color[1] / 255)), sliderY + 15},
+                Size = {10, 15},
+                Color = {255, 0, 0},
+                Filled = true
+            })
+            
+            -- Green slider
+            sliderY = sliderY + 40
+            UILib.Windows[1]:DrawElement("Text", {
+                Position = {pickerPos[1] + 10, sliderY},
+                Text = "G: " .. self.Color[2],
+                Color = {0, 255, 0},
+                Size = 14
+            })
+            
+            UILib.Windows[1]:DrawElement("Square", {
+                Position = {pickerPos[1] + 10, sliderY + 20},
+                Size = {self.PickerSize - 20, 5},
+                Color = {0, 100, 0},
+                Filled = true
+            })
+            
+            UILib.Windows[1]:DrawElement("Square", {
+                Position = {pickerPos[1] + 10 + ((self.PickerSize - 20) * (self.Color[2] / 255)), sliderY + 15},
+                Size = {10, 15},
+                Color = {0, 255, 0},
+                Filled = true
+            })
+            
+            -- Blue slider
+            sliderY = sliderY + 40
+            UILib.Windows[1]:DrawElement("Text", {
+                Position = {pickerPos[1] + 10, sliderY},
+                Text = "B: " .. self.Color[3],
+                Color = {0, 0, 255},
+                Size = 14
+            })
+            
+            UILib.Windows[1]:DrawElement("Square", {
+                Position = {pickerPos[1] + 10, sliderY + 20},
+                Size = {self.PickerSize - 20, 5},
+                Color = {0, 0, 100},
+                Filled = true
+            })
+            
+            UILib.Windows[1]:DrawElement("Square", {
+                Position = {pickerPos[1] + 10 + ((self.PickerSize - 20) * (self.Color[3] / 255)), sliderY + 15},
+                Size = {10, 15},
+                Color = {0, 0, 255},
+                Filled = true
+            })
+            
+            -- Handle slider interactions
+            if isleftpressed() then
+                local mouse = getmouseposition()
+                
+                -- Red slider
+                if UILib:MouseInArea({pickerPos[1] + 10, pickerPos[2] + 30, pickerPos[1] + self.PickerSize - 10, pickerPos[2] + 40}) then
+                    local ratio = (mouse.x - (pickerPos[1] + 10)) / (self.PickerSize - 20)
+                    self.Color[1] = math.floor(math.max(0, math.min(255, ratio * 255)))
+                    if callback then safeCall(callback, self.Color) end
+                end
+                
+                -- Green slider
+                if UILib:MouseInArea({pickerPos[1] + 10, pickerPos[2] + 70, pickerPos[1] + self.PickerSize - 10, pickerPos[2] + 80}) then
+                    local ratio = (mouse.x - (pickerPos[1] + 10)) / (self.PickerSize - 20)
+                    self.Color[2] = math.floor(math.max(0, math.min(255, ratio * 255)))
+                    if callback then safeCall(callback, self.Color) end
+                end
+                
+                -- Blue slider
+                if UILib:MouseInArea({pickerPos[1] + 10, pickerPos[2] + 110, pickerPos[1] + self.PickerSize - 10, pickerPos[2] + 120}) then
+                    local ratio = (mouse.x - (pickerPos[1] + 10)) / (self.PickerSize - 20)
+                    self.Color[3] = math.floor(math.max(0, math.min(255, ratio * 255)))
+                    if callback then safeCall(callback, self.Color) end
+                end
+            end
+            
+            -- Close if clicked outside
+            if isleftclicked() and not UILib:MouseInArea({pickerPos[1], pickerPos[2], pickerPos[1] + self.PickerSize, pickerPos[2] + self.PickerSize}) then
+                self.Open = false
+            end
+        end
+    end
+
+    return colorPicker
+end
+
+function UILib.CreateLabel(text)
+    local label = {
+        Text = text,
+        Height = 20
+    }
+    
+    function label:Render(position)
+        UILib.Windows[1]:DrawElement("Text", {
+            Position = position,
+            Text = self.Text,
+            Color = UILib.Colors.Font,
+            Size = 14
+        })
+    end
+    
+    return label
+end
+
+function UILib.CreateKeyBind(default, callback)
+    local keybind = {
+        Key = default or "None",
+        Listening = false,
+        Width = 100,
+        Height = 25
+    }
+    
+    function keybind:Render(position)
+        -- Background
+        UILib.Windows[1]:DrawElement("Square", {
+            Position = position,
+            Size = {self.Width, self.Height},
+            Color = self.Listening and UILib.Colors.Accent or UILib.Colors.Main,
+            Filled = true
+        })
+        
+        -- Text
+        UILib.Windows[1]:DrawElement("Text", {
+            Position = {position[1] + 10, position[2] + 5},
+            Text = self.Listening and "Press Key..." or self.Key,
+            Color = UILib.Colors.Font,
+            Size = 14
+        })
+        
+        -- Handle interactions
+        if UILib:MouseInArea({position[1], position[2], position[1] + self.Width, position[2] + self.Height}) then
+            if isleftclicked() then
+                self.Listening = true
+            end
+        elseif isleftclicked() and self.Listening then
+            self.Listening = false
+        end
+        
+        -- Key detection
+        if self.Listening then
+            local key = getpressedkey and getpressedkey() or ""
+            if key ~= "" and key ~= "None" then
+                self.Key = key
+                self.Listening = false
+                if callback then safeCall(callback, key) end
+            end
+        end
+    end
+    
+    return keybind
 end
 
 --[[
@@ -324,7 +782,7 @@ function UILib:Notify(title, message, duration)
     table.insert(self.Notifications, 1, notification)
 
     spawn(function()
-        wait(duration)
+        wait(duration or 5)
         for i, n in ipairs(self.Notifications) do
             if n == notification then
                 table.remove(self.Notifications, i)
@@ -366,22 +824,25 @@ end
 ]]
 
 spawn(function()
-    while wait() do
-        if UILib.Active then
-            -- Handle Keyboard Input
-            for i = 32, 126 do
-                if iskeydown(string.char(i)) and tick() - UILib.LastInput > 0.1 then
-                    UILib.InputBuffer = UILib.InputBuffer .. string.char(i):lower()
-                    UILib.LastInput = tick()
+    while true do
+        pcall(function()
+            if UILib.Active then
+                -- Handle Keyboard Input
+                for i = 32, 126 do
+                    if iskeydown and iskeydown(string.char(i)) and tick() - UILib.LastInput > 0.1 then
+                        UILib.InputBuffer = UILib.InputBuffer .. string.char(i):lower()
+                        UILib.LastInput = tick()
+                    end
+                end
+
+                -- Handle Backspace
+                if iskeydown and iskeydown("Backspace") and #UILib.InputBuffer > 0 then
+                    UILib.InputBuffer = UILib.InputBuffer:sub(1, -2)
+                    wait(0.1)
                 end
             end
-
-            -- Handle Backspace
-            if iskeydown("Backspace") and #UILib.InputBuffer > 0 then
-                UILib.InputBuffer = UILib.InputBuffer:sub(1, -2)
-                wait(0.1)
-            end
-        end
+        end)
+        wait(0.01)
     end
 end)
 
@@ -390,32 +851,72 @@ end)
 ]]
 
 spawn(function()
-    while wait(0.01) do
-        if UILib.Active then
-            -- Clear Screen
-            Drawing.clear()
+    while true do
+        pcall(function()
+            if UILib.Active then
+                -- Clear Screen
+                Drawing.clear()
 
-            -- Update Mouse
-            local mouse = getmouseposition()
-            
-            -- Render All Windows
-            for _, window in ipairs(UILib.Windows) do
-                window:Render()
+                -- Update Mouse
+                local mouse = getmouseposition()
+                
+                -- Render All Windows
+                for _, window in ipairs(UILib.Windows) do
+                    window:Render()
+                end
+
+                -- Render Notifications
+                UILib:RenderNotifications()
+
+                -- Draw Cursor
+                local circle = Drawing.new("Circle")
+                pcall(function()
+                    circle.Position = Vector2.new(mouse.x, mouse.y)
+                    circle.Color = UILib.Colors.Accent
+                    circle.Radius = 5
+                    circle.Filled = true
+                    circle.Visible = true
+                end)
+                
+                task.delay(0.1, function()
+                    pcall(function() circle:Remove() end)
+                end)
             end
-
-            -- Render Notifications
-            UILib:RenderNotifications()
-
-            -- Draw Cursor
-            Drawing.new("Circle"):Set({
-                Position = Vector2.new(mouse.x, mouse.y),
-                Color = UILib.Colors.Accent,
-                Radius = 5,
-                Filled = true,
-                Visible = true
-            })
-        end
+        end)
+        wait(0.01)
     end
 end)
+
+-- Helper to create Vector2 objects for Drawing functions
+function UILib:CreateVector2(x, y)
+    if typeof(Vector2) == "userdata" then
+        return Vector2.new(x, y)
+    else
+        -- Fallback implementation for environments without Vector2
+        return {
+            x = x,
+            y = y,
+            Magnitude = function(self)
+                return math.sqrt(self.x * self.x + self.y * self.y)
+            end,
+            Unit = function(self)
+                local mag = self:Magnitude()
+                if mag > 0 then
+                    return UILib:CreateVector2(self.x / mag, self.y / mag)
+                else
+                    return UILib:CreateVector2(0, 0)
+                end
+            end
+        }
+    end
+end
+
+-- Utility to convert table positions to Vector2 when needed
+function UILib:ConvertToVector(position)
+    if type(position) == "table" then
+        return self:CreateVector2(position[1], position[2])
+    end
+    return position
+end
 
 return UILib
