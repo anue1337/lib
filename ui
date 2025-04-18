@@ -114,9 +114,104 @@ function SevereUI:Initialize()
     end
 end
 
+function SevereUI:MouseInArea(area, deadzone)
+    local mousePos = getmouseposition()
+    
+    if deadzone ~= nil then
+        if mousePos.x > area[1] and mousePos.y > area[2] and mousePos.x < area[3] and mousePos.y < area[4] then
+            if mousePos.x > deadzone[1] and mousePos.y > deadzone[2] and mousePos.x < deadzone[3] and mousePos.y < deadzone[4] then
+                return false
+            else
+                return true
+            end
+        else
+            return false
+        end
+    else
+        if mousePos.x > area[1] and mousePos.y > area[2] and mousePos.x < area[3] and mousePos.y < area[4] then
+            return true
+        else
+            return false
+        end
+    end
+end
+
+-- Gerenciador centralizado de eventos de mouse
+SevereUI.Mouse = {
+    lastClick = 0,
+    isLeftPressed = false,
+    hasLeftClicked = false
+}
+
+-- Função para atualizar o estado do mouse
+function SevereUI:UpdateMouseState()
+    local leftPressed = isleftpressed()
+    
+    -- Detectar clique (transição de não pressionado para pressionado)
+    SevereUI.Mouse.hasLeftClicked = leftPressed and not SevereUI.Mouse.isLeftPressed
+    
+    -- Atualizar estado de pressionado
+    SevereUI.Mouse.isLeftPressed = leftPressed
+    
+    -- Registrar timestamp do último clique para evitar múltiplos cliques
+    if SevereUI.Mouse.hasLeftClicked then
+        SevereUI.Mouse.lastClick = os.clock()
+    end
+    
+    return SevereUI.Mouse
+end
+
+-- Função para verificar se um clique ocorreu em uma área, com proteção anti-duplo-clique
+function SevereUI:CheckClickInArea(area, deadzone, cooldown)
+    cooldown = cooldown or 0.2 -- Tempo mínimo entre cliques (em segundos)
+    
+    local mouse = self:UpdateMouseState()
+    
+    if mouse.hasLeftClicked and (os.clock() - mouse.lastClick) > cooldown then
+        return self:MouseInArea(area, deadzone)
+    end
+    
+    return false
+end
+
+-- Função para gerenciar a ordem Z das janelas (trazendo a janela clicada para frente)
+function SevereUI:ManageWindowZOrder(window)
+    -- Remover a janela da lista
+    for i, win in ipairs(SevereUI.Windows) do
+        if win == window then
+            table.remove(SevereUI.Windows, i)
+            break
+        end
+    end
+    
+    -- Adicionar a janela no topo da lista (maior Z-index)
+    table.insert(SevereUI.Windows, window)
+end
+
+-- Modificar o método de inicialização para configurar o gerenciador de eventos global
+local oldInitialize = SevereUI.Initialize
+function SevereUI:Initialize()
+    oldInitialize(self)
+    
+    -- Configurar o gerenciador de eventos global se ainda não estiver configurado
+    if not SevereUI.EventManagerActive then
+        spawn(function()
+            SevereUI.EventManagerActive = true
+            while true do
+                -- Atualizar estado do mouse para todas as janelas
+                SevereUI:UpdateMouseState()
+                wait(0.01)
+            end
+        end)
+    end
+end
+
 -- Configurar funcionalidade de arrastar
+-- Substituir a função SetupDraggable por esta versão melhorada
 function SevereUI:SetupDraggable()
     spawn(function()
+        local lastDragCheck = 0
+        
         while true do
             if not self.visible then
                 wait(0.1)
@@ -124,30 +219,40 @@ function SevereUI:SetupDraggable()
             end
             
             local mousePos = getmouseposition()
+            local currentTime = os.clock()
+            
+            -- Área da barra de título
+            local titleBarArea = {
+                self.titleBar.Position.x,
+                self.titleBar.Position.y,
+                self.titleBar.Position.x + self.titleBar.Size.x,
+                self.titleBar.Position.y + self.titleBar.Size.y
+            }
             
             -- Verificar se o mouse está sobre a barra de título
-            local overTitleBar = (
-                mousePos.x >= self.titleBar.Position.x and
-                mousePos.x <= self.titleBar.Position.x + self.titleBar.Size.x and
-                mousePos.y >= self.titleBar.Position.y and
-                mousePos.y <= self.titleBar.Position.y + self.titleBar.Size.y
-            )
+            local overTitleBar = self:MouseInArea(titleBarArea)
             
-            -- Iniciar arrasto
-            if overTitleBar and isleftpressed() and not self.dragging then
+            -- Gerenciar o início do arrasto com debounce para evitar problemas
+            if overTitleBar and isleftpressed() and not self.dragging and (currentTime - lastDragCheck > 0.05) then
+                -- Verificar se esta janela deve estar na frente
+                self:ManageWindowZOrder(self)
+                
                 self.dragging = true
                 self.dragOffset = {
                     mousePos.x - self.frame.Position.x,
                     mousePos.y - self.frame.Position.y
                 }
+                
+                lastDragCheck = currentTime
             end
             
             -- Terminar arrasto
             if not isleftpressed() and self.dragging then
                 self.dragging = false
+                lastDragCheck = currentTime
             end
             
-            -- Atualizar posição durante arrasto
+            -- Atualizar posição durante arrasto com limitações de taxa
             if self.dragging then
                 local newX = mousePos.x - self.dragOffset[1]
                 local newY = mousePos.y - self.dragOffset[2]
@@ -159,6 +264,24 @@ function SevereUI:SetupDraggable()
             wait(0.01)
         end
     end)
+end
+
+-- Adicionar função para gerenciar a ordem Z das janelas
+function SevereUI:ManageWindowZOrder(window)
+    -- Verificar se a janela já está na lista
+    local index = nil
+    for i, win in ipairs(SevereUI.Windows) do
+        if win == window then
+            index = i
+            break
+        end
+    end
+    
+    -- Se a janela estiver na lista, movê-la para o final (maior Z-index)
+    if index then
+        table.remove(SevereUI.Windows, index)
+        table.insert(SevereUI.Windows, window)
+    end
 end
 
 -- Definir a posição da janela
@@ -351,6 +474,65 @@ function SevereUI:UpdateElementPositions(offsetX, offsetY)
             end
         end
     end
+end
+
+-- Adicionar uma função de renderização master que gerencia a ordem Z
+function SevereUI:RenderAll()
+    -- Primeiro, atualize o estado do mouse para todos
+    self:UpdateMouseState()
+    
+    -- Renderizar todas as janelas na ordem correta (do mais baixo para o mais alto Z-index)
+    for i, window in ipairs(SevereUI.Windows) do
+        window:Render()
+        
+        -- Renderizar ferramentas abertas
+        if window.OpenTool then
+            window.OpenTool:Render()
+        end
+    end
+end
+
+-- Nova função de renderização para uma janela específica
+function SevereUI:Render()
+    if not self.visible then
+        return
+    end
+    
+    -- Desenhar os elementos base da janela
+    -- Os elementos já têm suas propriedades Visible configuradas corretamente
+    
+    -- Renderizar elementos filhos
+    for _, element in pairs(self.elements) do
+        if element.visible and element.Render then
+            element:Render()
+        end
+    end
+    
+    -- Renderizar a aba atual se houver
+    if self.currentTab then
+        -- Os elementos da aba já têm suas propriedades Visible configuradas corretamente
+        
+        -- Renderizar elementos da aba
+        for _, element in pairs(self.currentTab.elements) do
+            if element.visible and element.Render then
+                element:Render()
+            end
+        end
+    end
+end
+
+-- Modificar a função Init para incluir o sistema RenderAll
+function SevereUI.Init()
+    -- Configure o loop de renderização global
+    spawn(function()
+        while true do
+            SevereUI:RenderAll()
+            wait(0.01) -- 100 FPS máximo para renderização
+        end
+    end)
+    
+    -- Configurar o gerenciador de eventos
+    SevereUI:UpdateMouseState()
 end
 
 -- Mostrar a janela
@@ -565,6 +747,7 @@ function SevereUI:AddElement(element)
 end
 
 -- Criar um botão
+-- Substituir a configuração de clique no botão por esta versão melhorada
 function SevereUI:CreateButton(options)
     local parent = options.parent or self.currentTab or self
     local container = parent.container or self.contentContainer
@@ -582,7 +765,8 @@ function SevereUI:CreateButton(options)
         text = options.text,
         callback = options.callback,
         parent = parent,
-        visible = true
+        visible = true,
+        isHovered = false
     }
     
     -- Posição absoluta
@@ -613,6 +797,16 @@ function SevereUI:CreateButton(options)
     button.label.Size = self.config.textSize
     button.label.Font = self.config.font
     button.label.Transparency = self.config.transparency
+
+    -- Obter a área clicável do botão
+    button.getClickArea = function()
+        return {
+            button.background.Position.x,
+            button.background.Position.y,
+            button.background.Position.x + button.background.Size.x,
+            button.background.Position.y + button.background.Size.y
+        }
+    end
     
     -- Criar funções para o botão
     button.Show = function()
@@ -632,7 +826,7 @@ function SevereUI:CreateButton(options)
         button.label:Remove()
     end
     
-    -- Configurar clique no botão
+    -- Configurar interação com o botão usando o sistema centralizado
     spawn(function()
         while true do
             if not self.visible or not parent.visible then
@@ -641,26 +835,21 @@ function SevereUI:CreateButton(options)
             end
             
             local mousePos = getmouseposition()
+            local buttonArea = button.getClickArea()
             
             -- Verificar se o mouse está sobre o botão
-            local overButton = (
-                mousePos.x >= button.background.Position.x and
-                mousePos.x <= button.background.Position.x + button.background.Size.x and
-                mousePos.y >= button.background.Position.y and
-                mousePos.y <= button.background.Position.y + button.background.Size.y
-            )
+            local isHovered = self:MouseInArea(buttonArea)
             
-            -- Alterar cor quando hover
-            if overButton then
-                button.background.Color = self.config.theme.highlight
-                
-                -- Acionar callback quando clicado
-                if isleftclicked() then
-                    button.callback()
-                    wait(0.2)  -- Evitar múltiplos cliques
-                end
-            else
-                button.background.Color = self.config.theme.foreground
+            -- Atualizar estado de hover e aparência
+            if isHovered ~= button.isHovered then
+                button.isHovered = isHovered
+                button.background.Color = isHovered and self.config.theme.highlight or self.config.theme.foreground
+            end
+            
+            -- Verificar clique com debounce
+            if button.isHovered and self.Mouse.hasLeftClicked and (os.clock() - self.Mouse.lastClick < 0.2) then
+                button.callback()
+                self.Mouse.lastClick = os.clock() -- Resetar o cooldown do clique
             end
             
             wait(0.01)
