@@ -396,19 +396,50 @@ function SevereUI:Hide()
 end
 
 function SevereUI:UpdateElementsVisibility(state)
-    -- Atualizar tabs
-    for _, tab in ipairs(self.tabs) do
-        tab.button.Visible = state
-        tab.buttonText.Visible = state
-        tab.container.Visible = state and (tab == self.currentTab)
+    -- Proteções e logging
+    if not self or not self.tabs then
+        print("ERROR: self ou self.tabs é nil")
+        return
     end
     
-    -- Atualizar elementos principais
-    for _, element in ipairs(self.elements) do
-        if element.SetVisible then
-            element:SetVisible(state)
+    -- Atualizar tabs com proteção extra
+    for i, tab in ipairs(self.tabs) do
+        if tab then
+            if tab.button then tab.button.Visible = state end
+            if tab.buttonText then tab.buttonText.Visible = state end
+            if tab.container then 
+                tab.container.Visible = state and (tab == self.currentTab)
+            end
+        end
+    end
+    
+    -- Proteção para elements
+    if not self.elements then
+        print("ERROR: self.elements é nil")
+        return
+    end
+    
+    -- Atualizar elementos principais com verificação rigorosa
+    for i, element in ipairs(self.elements) do
+        if element == nil then
+            print("ERROR: Elemento " .. i .. " é nil")
         else
-            element.Visible = state
+            -- Verificar o tipo do elemento e adicionar proteção
+            local success = pcall(function()
+                if type(element.SetVisible) == "function" then
+                    element:SetVisible(state)
+                elseif element.Visible ~= nil then
+                    element.Visible = state
+                else
+                    print("AVISO: Elemento " .. i .. " não tem nem SetVisible nem Visible")
+                end
+            end)
+            
+            if not success then
+                print("ERROR: Falha ao definir visibilidade para elemento " .. i)
+                -- Tentar remover o elemento problemático
+                self.elements[i] = nil
+            end
         end
     end
 end
