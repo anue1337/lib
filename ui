@@ -1,922 +1,1198 @@
 --[[
-    RLua UI Library Completa
-    Versão 3.0 - Recursos Avançados Com Groupbox Support
-    Fixed by Claude
+ SevereUI - Interface Gráfica para Roblox Lua
+ Versão 1.0.0
+ 
+ Biblioteca unificada para criação de interfaces gráficas.
+ Todos os métodos seguem o padrão PascalCase conforme documentação.
 ]]
 
-local UILib = {
-    Colors = {
-        Font = {255, 255, 255},
-        Main = {25, 25, 25},
-        Background = {20, 20, 20},
-        Accent = {255, 50, 255},
-        Outline = {40, 40, 40},
-        Disabled = {100, 100, 100},
-        Hover = {50, 50, 50},
-        Success = {0, 200, 0},
-        Danger = {200, 0, 0}
-    },
-    Windows = {},
-    Notifications = {},
-    Active = true,
-    Fonts = {"UI", "System", "Plex", "Monospace"},
-    InputBuffer = "",
-    LastInput = 0
-}
-
--- Check if we're in the proper environment
-local env_success, Drawing = pcall(function() return Drawing end)
-if not env_success then
-    warn("Drawing library not found. Using fallback implementation.")
-    Drawing = {
-        new = function() 
-            return {
-                Set = function() end,
-                Remove = function() end
-            }
+-- Inicialização da biblioteca global
+if _G.SevereUI == nil then
+    _G.SevereUI = { 
+        -- Cores padrão
+        FontColor = { 255, 255, 255 },
+        MainColor = { 25, 25, 25 },
+        BackgroundColor = { 20, 20, 20 },
+        AccentColor = { 255, 50, 255 },
+        OutlineColor = { 40, 40, 40 },
+        Colors = {
+            Font = { 255, 255, 255 },
+            Main = { 25, 25, 25 },
+            Background = { 20, 20, 20 },
+            Accent = { 255, 50, 255 },
+            Outline = { 40, 40, 40 }
         },
-        clear = function() end
+        
+        -- Sistema de gerenciamento
+        Windows = {},
+        ActiveWindow = nil,
+        DraggingWindow = nil,
+        
+        -- Estado do mouse
+        Mouse = {
+            Position = {0, 0},
+            LeftClicked = false,
+            RightPressed = false,
+            RightClicked = false,
+            LeftPressed = false
+        },
+        
+        -- Funções de referência
+        GetKey = GetKey,
+        DrawFilledBox = DrawFilledBox,
+        DrawString = DrawString,
+        CalcTextWidth = CalcTextWidth
     }
 end
 
--- Safe function calls
-local function safeCall(fn, ...)
-    if type(fn) == "function" then
-        return fn(...)
-    end
-    return nil
+local SevereUI = _G.SevereUI
+
+-- Utilitários
+function SevereUI.MouseInArea(area)
+    local mouse = SevereUI.Mouse.Position
+    return mouse[1] > area[1] and mouse[2] > area[2] 
+       and mouse[1] < area[3] and mouse[2] < area[4]
 end
 
-local isleftclicked = isleftclicked or function() return false end
-local isleftpressed = isleftpressed or function() return false end
-local getmouseposition = getmouseposition or function() return {x=0, y=0} end
-local tick = tick or function() return os.time() end
-local wait = wait or function(t) 
-    local start = tick()
-    while tick() - start < (t or 0.03) do end
-end
-local spawn = spawn or function(f) f() end
-local task = task or {
-    delay = function(t, f) 
-        spawn(function()
-            wait(t)
-            f()
-        end)
-    end
-}
-local iskeydown = iskeydown or function() return false end
+-- =================================================
+-- Sistema de janelas
+-- =================================================
 
---[[
-    Core Functions
-]]
-
-function UILib:MouseInArea(area)
-    local mouse = getmouseposition()
-    return mouse.x > area[1] and mouse.y > area[2] and mouse.x < area[3] and mouse.y < area[4]
-end
-
-function UILib:CreateWindow(name, size, position)
+function SevereUI.CreateWindow(params)
     local window = {
-        Name = name,
-        Size = size,
-        Position = position or {100, 100},
-        Elements = {},
+        Name = params.Name or "Window",
+        Position = params.Position or {100, 100},
+        Size = params.Size or {600, 400},
         Tabs = {},
-        ActiveTab = 1,
-        ScrollOffset = 0,
+        CurrentTab = nil,
+        TabMargin = 0,
         Dragging = false,
         DragOffset = {0, 0}
     }
-
-    -- Window Methods
-    function window:AddTab(name)
-        local tab = {
-            Name = name,
-            Elements = {},
-            ScrollOffset = 0,
-            Groupboxes = {}
+    
+    -- Converter posição e tamanho para formato moderno
+    window.Position = {
+        X = window.Position[1],
+        Y = window.Position[2]
+    }
+    
+    window.Size = {
+        Width = window.Size[1],
+        Height = window.Size[2]
+    }
+    
+    -- Método para atualizar restrições
+    function window:UpdateRestraints(settings)
+        if settings.Width then
+            self.Size.Width = math.max(self.Size.Width, settings.Width)
+        end
+    end
+    
+    -- Renderização da janela
+    function window:Render()
+        -- Fundo principal
+        SevereUI.DrawFilledBox(
+            {self.Position.X, self.Position.Y},
+            {self.Position.X + self.Size.Width, self.Position.Y + self.Size.Height},
+            SevereUI.MainColor
+        )
+        
+        -- Barra de título
+        SevereUI.DrawFilledBox(
+            {self.Position.X, self.Position.Y},
+            {self.Position.X + self.Size.Width, self.Position.Y + 30},
+            SevereUI.AccentColor
+        )
+        
+        -- Título
+        SevereUI.DrawString(
+            {self.Position.X + 10, self.Position.Y + 5},
+            SevereUI.FontColor,
+            self.Name
+        )
+        
+        -- Área de arrastar
+        local titleBarArea = {
+            self.Position.X, self.Position.Y,
+            self.Position.X + self.Size.Width, self.Position.Y + 30
         }
         
-        function tab:AddGroupbox(name)
-            local groupbox = {
-                Name = name,
-                Elements = {},
-                Position = {0, 0},
-                Size = {self.Parent and self.Parent.Size[1] - 40 or 200, 200},
-                Collapsed = false,
-                Parent = self
+        -- Verificar cliques na barra de título para arrastar
+        if SevereUI.MouseInArea(titleBarArea) and SevereUI.Mouse.LeftClicked then
+            self.Dragging = true
+            self.DragOffset = {
+                SevereUI.Mouse.Position[1] - self.Position.X,
+                SevereUI.Mouse.Position[2] - self.Position.Y
             }
-            
-            function groupbox:AddElement(element)
-                table.insert(self.Elements, element)
-                return element
-            end
-            
-            function groupbox:Render(position)
-                -- Header
-                UILib.Windows[1]:DrawElement("Square", {
-                    Position = position,
-                    Size = {self.Size[1], 25},
-                    Color = UILib.Colors.Accent,
-                    Filled = true
-                })
-                
-                UILib.Windows[1]:DrawElement("Text", {
-                    Position = {position[1] + 5, position[2] + 5},
-                    Text = self.Name,
-                    Color = UILib.Colors.Font,
-                    Size = 14
-                })
-                
-                -- Collapse button
-                UILib.Windows[1]:DrawElement("Text", {
-                    Position = {position[1] + self.Size[1] - 20, position[2] + 5},
-                    Text = self.Collapsed and "+" or "-",
-                    Color = UILib.Colors.Font,
-                    Size = 14
-                })
-                
-                if UILib:MouseInArea({position[1] + self.Size[1] - 20, position[2], position[1] + self.Size[1], position[2] + 25}) and isleftclicked() then
-                    self.Collapsed = not self.Collapsed
-                end
-                
-                if not self.Collapsed then
-                    -- Content
-                    UILib.Windows[1]:DrawElement("Square", {
-                        Position = {position[1], position[2] + 25},
-                        Size = {self.Size[1], self.Size[2] - 25},
-                        Color = UILib.Colors.Main,
-                        Filled = true
-                    })
-                    
-                    -- Elements
-                    local elementY = position[2] + 35
-                    for _, element in ipairs(self.Elements) do
-                        element:Render({position[1] + 10, elementY})
-                        elementY = elementY + element.Height + 10
-                    end
-                    
-                    return 25 + self.Size[2]
-                else
-                    return 25
-                end
-            end
-            
-            table.insert(self.Groupboxes, groupbox)
-            return groupbox
+            SevereUI.DraggingWindow = self
         end
         
-        table.insert(self.Tabs, tab)
-        return tab
-    end
-
-    function window:Render()
-        if not UILib.Active then return end
-        
-        -- Handle dragging
-        if self.Dragging then
-            local mouse = getmouseposition()
-            self.Position = {mouse.x - self.DragOffset[1], mouse.y - self.DragOffset[2]}
-            
-            if not isleftpressed() then
-                self.Dragging = false
+        -- Atualizar posição se estiver arrastando
+        if self.Dragging and SevereUI.Mouse.LeftPressed then
+            self.Position.X = SevereUI.Mouse.Position[1] - self.DragOffset[1]
+            self.Position.Y = SevereUI.Mouse.Position[2] - self.DragOffset[2]
+        elseif not SevereUI.Mouse.LeftPressed then
+            self.Dragging = false
+            if SevereUI.DraggingWindow == self then
+                SevereUI.DraggingWindow = nil
             end
         end
         
-        -- Window Background
-        self:DrawElement("Square", {
-            Position = self.Position,
-            Size = self.Size,
-            Color = UILib.Colors.Main,
-            Filled = true
-        })
-
-        -- Title Bar
-        self:DrawElement("Square", {
-            Position = {self.Position[1], self.Position[2]},
-            Size = {self.Size[1], 30},
-            Color = UILib.Colors.Accent,
-            Filled = true
-        })
-
-        -- Title Text
-        self:DrawElement("Text", {
-            Position = {self.Position[1] + 10, self.Position[2] + 5},
-            Text = self.Name,
-            Color = UILib.Colors.Font,
-            Size = 18
-        })
-        
-        -- Handle title bar dragging
-        if UILib:MouseInArea({self.Position[1], self.Position[2], self.Position[1] + self.Size[1], self.Position[2] + 30}) and isleftpressed() then
-            if not self.Dragging then
-                local mouse = getmouseposition()
-                self.DragOffset = {mouse.x - self.Position[1], mouse.y - self.Position[2]}
-                self.Dragging = true
-            end
-        end
-
-        -- Content Area
-        local contentY = self.Position[2] + 40
-        local contentHeight = self.Size[2] - 50
-        
-        -- Tabs
+        -- Renderizar abas e conteúdo
         if #self.Tabs > 0 then
-            local tabWidth = self.Size[1] / #self.Tabs
-            for i, tab in ipairs(self.Tabs) do
-                local tabX = self.Position[1] + (i-1)*tabWidth
-                if self:DrawTab(tabX, self.Position[2] + 30, tabWidth, 20, tab.Name, i == self.ActiveTab) then
-                    self.ActiveTab = i
-                end
+            for _, tab in ipairs(self.Tabs) do
+                tab:Render()
             end
-
-            -- Render Active Tab
-            local activeTab = self.Tabs[self.ActiveTab]
-            if activeTab then
-                local elementY = contentY
+            
+            -- Renderizar conteúdo da aba atual
+            if self.CurrentTab then
+                -- Fundo da área de conteúdo
+                SevereUI.DrawFilledBox(
+                    {self.Position.X + 5, self.Position.Y + 55},
+                    {self.Position.X + self.Size.Width - 5, self.Position.Y + self.Size.Height - 5},
+                    SevereUI.BackgroundColor
+                )
                 
-                -- Render groupboxes first
-                for _, groupbox in ipairs(activeTab.Groupboxes) do
-                    local height = groupbox:Render({self.Position[1] + 10, elementY})
-                    elementY = elementY + height + 10
-                }
-                
-                -- Then render regular elements
-                for _, element in ipairs(activeTab.Elements) do
-                    element:Render({self.Position[1] + 10, elementY})
-                    elementY = elementY + element.Height + 10
-                end
-            end
-        end
-    end
-
-    function window:DrawElement(type, params)
-        local element = Drawing.new(type)
-        local safeSet = function(obj, props)
-            for k, v in pairs(props) do
-                pcall(function()
-                    if k == "Position" or k == "Size" then
-                        obj[k] = Vector2.new(v[1], v[2])
-                    else
-                        obj[k] = v
+                -- Renderizar as caixas de grupo da aba atual
+                for position, groupBoxes in pairs(self.CurrentTab.GroupBoxes) do
+                    for _, groupBox in ipairs(groupBoxes) do
+                        groupBox:Render()
                     end
-                end)
+                end
             end
         end
-        
-        safeSet(element, params)
-        element.Visible = true
-        
-        task.delay(0.1, function() 
-            pcall(function() element:Remove() end) 
-        end)
     end
-
-    function window:DrawTab(x, y, w, h, text, active)
-        local color = active and UILib.Colors.Accent or UILib.Colors.Main
-        self:DrawElement("Square", {
-            Position = {x, y},
-            Size = {w, h},
-            Color = color,
-            Filled = true
-        })
-
-        self:DrawElement("Text", {
-            Position = {x + 5, y + 3},
-            Text = text,
-            Color = UILib.Colors.Font,
-            Size = 14
-        })
-
-        return self:MouseInArea({x, y, x + w, y + h}) and isleftclicked()
-    end
-
-    table.insert(UILib.Windows, window)
+    
+    -- Adicionar à lista de janelas
+    table.insert(SevereUI.Windows, window)
+    SevereUI.ActiveWindow = window
+    
     return window
 end
 
---[[
-    UI Elements
-]]
+-- =================================================
+-- Sistema de abas
+-- =================================================
 
-function UILib.CreateButton(text, callback)
-    local button = {
-        Text = text,
-        Callback = callback,
-        Width = 120,
-        Height = 30,
-        State = "normal"
+function Window:AddTab(TabName)
+    local Tab = {
+        Name = TabName,
+        Window = self,
+        GroupBoxes = {Left = {}, Right = {}, Middle = {}},
+        Active = false,
+        LeftStack = 0,
+        RightStack = 0
     }
 
-    function button:Render(position)
-        local color = self.State == "hover" and UILib.Colors.Hover or UILib.Colors.Main
-        UILib.Windows[1]:DrawElement("Square", {
-            Position = position,
-            Size = {self.Width, self.Height},
-            Color = color,
-            Filled = true
-        })
+    -- Calcular largura da tab
+    local TabWidth = SevereUI.CalcTextWidth(TabName) + 24
+    
+    -- Atualizar restrições da janela
+    self.TabMargin = self.TabMargin + TabWidth
+    self:UpdateRestraints({Width = self.TabMargin})
 
-        UILib.Windows[1]:DrawElement("Text", {
-            Position = {position[1] + 10, position[2] + 5},
-            Text = self.Text,
-            Color = UILib.Colors.Font,
-            Size = 14
-        })
+    -- Renderização da Tab
+    function Tab:Render()
+        local isActive = (self == self.Window.CurrentTab)
+        local tabPosX = self.Window.Position.X + self.Window.TabMargin - TabWidth
+        
+        -- Desenhar fundo
+        SevereUI.DrawFilledBox(
+            {tabPosX, self.Window.Position.Y + 25},
+            {tabPosX + TabWidth, self.Window.Position.Y + 50},
+            isActive and SevereUI.Colors.Accent or SevereUI.Colors.Background
+        )
 
-        if UILib:MouseInArea({position[1], position[2], position[1] + self.Width, position[2] + self.Height}) then
-            self.State = isleftpressed() and "active" or "hover"
-            if isleftclicked() then
-                safeCall(self.Callback)
-            end
-        else
-            self.State = "normal"
+        -- Desenhar texto
+        SevereUI.DrawString(
+            {tabPosX + 12, self.Window.Position.Y + 28},
+            SevereUI.Colors.Font,
+            self.Name
+        )
+
+        -- Atualizar boundary para interação
+        self.Boundary = {
+            tabPosX, self.Window.Position.Y + 25,
+            tabPosX + TabWidth, self.Window.Position.Y + 50
+        }
+        
+        -- Verificar cliques na aba
+        if SevereUI.MouseInArea(self.Boundary) and SevereUI.Mouse.LeftClicked then
+            self.Window.CurrentTab = self
+            -- Resetar as stacks quando mudar de aba
+            self.LeftStack = 0
+            self.RightStack = 0
         end
     end
 
-    return button
+    -- Preparar propriedades
+    Tab.Active = (#self.Tabs == 0)
+    if Tab.Active then
+        self.CurrentTab = Tab
+    end
+    
+    table.insert(self.Tabs, Tab)
+    return Tab
 end
 
-function UILib.CreateSlider(min, max, value, callback)
-    local slider = {
-        Min = min,
-        Max = max,
-        Value = value,
-        Width = 200,
-        Height = 40,
+-- =================================================
+-- Sistema de GroupBox
+-- =================================================
+
+function Tab:AddGroupBox(GroupBoxName, Position)
+    assert(type(GroupBoxName) == "string", "GroupBox name must be a string")
+    
+    local GroupBox = {
+        Name = GroupBoxName,
+        Tab = self,
+        Position = Position or "Left",
+        Elements = {},
+        Size = {Width = 250, Height = 50},
+        ContentY = 30, -- Espaço para o título
+        Visible = true
+    }
+
+    -- Configurar posicionamento
+    function GroupBox:CalculatePosition()
+        local baseX = self.Tab.Window.Position.X + 20
+        local baseY = self.Tab.Window.Position.Y + 60
+        
+        if self.Position == "Left" then
+            return baseX, baseY + self.Tab.LeftStack
+        elseif self.Position == "Right" then
+            return baseX + self.Tab.Window.Size.Width/2 - 20, baseY + self.Tab.RightStack
+        else -- Middle
+            return baseX + (self.Tab.Window.Size.Width/4), baseY + math.max(self.Tab.LeftStack, self.Tab.RightStack)
+        end
+    end
+
+    -- Renderização da GroupBox
+    function GroupBox:Render()
+        if not self.Visible then return end
+        
+        local posX, posY = self:CalculatePosition()
+        
+        -- Atualizar posição para referência
+        self.Position = {
+            X = posX,
+            Y = posY
+        }
+        
+        -- Desenhar container
+        SevereUI.DrawFilledBox(
+            {posX, posY},
+            {posX + self.Size.Width, posY + self.Size.Height},
+            SevereUI.Colors.Background
+        )
+        
+        -- Desenhar borda
+        local outlineColor = SevereUI.OutlineColor
+        -- Desenhar linhas de borda (top, right, bottom, left)
+        SevereUI.DrawFilledBox(
+            {posX, posY}, 
+            {posX + self.Size.Width, posY + 1}, 
+            outlineColor
+        )
+        SevereUI.DrawFilledBox(
+            {posX + self.Size.Width - 1, posY}, 
+            {posX + self.Size.Width, posY + self.Size.Height}, 
+            outlineColor
+        )
+        SevereUI.DrawFilledBox(
+            {posX, posY + self.Size.Height - 1}, 
+            {posX + self.Size.Width, posY + self.Size.Height}, 
+            outlineColor
+        )
+        SevereUI.DrawFilledBox(
+            {posX, posY}, 
+            {posX + 1, posY + self.Size.Height}, 
+            outlineColor
+        )
+
+        -- Desenhar título
+        SevereUI.DrawString(
+            {posX + 10, posY + 5},
+            SevereUI.Colors.Font,
+            self.Name
+        )
+
+        -- Renderizar elementos
+        for _, element in ipairs(self.Elements) do
+            if element.Render then
+                element:Render(posX + 10, posY + element.Offset)
+            end
+        end
+        
+        -- Atualizar stacks
+        if self.Position == "Left" then
+            self.Tab.LeftStack = self.Tab.LeftStack + self.Size.Height + 10
+        elseif self.Position == "Right" then
+            self.Tab.RightStack = self.Tab.RightStack + self.Size.Height + 10
+        else -- Middle
+            self.Tab.LeftStack = self.Tab.LeftStack + self.Size.Height + 10
+            self.Tab.RightStack = self.Tab.RightStack + self.Size.Height + 10
+        end
+    end
+
+    -- Adicionar o GroupBox à lista correta
+    table.insert(self.GroupBoxes[GroupBox.Position], GroupBox)
+    return GroupBox
+end
+
+-- =================================================
+-- Componente Button
+-- =================================================
+
+function GroupBox:AddButton(params)
+    local Button = {
+        Name = params.Name or "Button",
+        Offset = self.ContentY,
+        Size = {Width = self.Size.Width - 20, Height = 25},
+        Callback = params.Callback or function() end,
+        State = {Hovering = false, Pressed = false}
+    }
+
+    -- Incrementar ContentY para próximo elemento
+    self.ContentY = self.ContentY + Button.Size.Height + 5
+    self.Size.Height = self.Size.Height + Button.Size.Height + 5
+
+    function Button:Render(x, y)
+        -- Obter posição do mouse
+        local mouseX, mouseY = unpack(SevereUI.Mouse.Position)
+        
+        -- Verificar se o mouse está sobre o botão
+        self.State.Hovering = (
+            mouseX >= x and 
+            mouseX <= x + self.Size.Width and
+            mouseY >= y + self.Offset and 
+            mouseY <= y + self.Offset + self.Size.Height
+        )
+
+        -- Verificar estado do botão
+        if self.State.Hovering then
+            if SevereUI.Mouse.LeftClicked then
+                self.State.Pressed = true
+            elseif SevereUI.Mouse.LeftPressed == false and self.State.Pressed then
+                self.State.Pressed = false
+                self.Callback()
+            end
+        elseif SevereUI.Mouse.LeftPressed == false then
+            self.State.Pressed = false
+        end
+
+        -- Renderização do botão
+        local bgColor = self.State.Hovering and SevereUI.AccentColor or SevereUI.MainColor
+        
+        -- Desenhar fundo do botão
+        SevereUI.DrawFilledBox(
+            {x, y + self.Offset},
+            {x + self.Size.Width, y + self.Offset + self.Size.Height},
+            bgColor
+        )
+        
+        -- Desenhar texto centralizado
+        local textWidth = SevereUI.CalcTextWidth(self.Name)
+        local textX = x + (self.Size.Width - textWidth) / 2
+        local textY = y + self.Offset + (self.Size.Height - 14) / 2
+        
+        SevereUI.DrawString(
+            {textX, textY},
+            SevereUI.FontColor,
+            self.Name
+        )
+    end
+    
+    table.insert(self.Elements, Button)
+    return Button
+end
+
+-- =================================================
+-- Componente Slider
+-- =================================================
+
+function GroupBox:AddSlider(params)
+    local Slider = {
+        Name = params.Name or "Slider",
+        Offset = self.ContentY,
+        Size = {Width = self.Size.Width - 20, Height = 35},
+        Min = params.Min or 0,
+        Max = params.Max or 100,
+        Value = params.Default or params.Min or 0,
+        OnChanged = params.OnChanged,
         Dragging = false
     }
 
-    function slider:Render(position)
-        -- Label
-        UILib.Windows[1]:DrawElement("Text", {
-            Position = {position[1], position[2]},
-            Text = tostring(math.floor(self.Value * 100) / 100),
-            Color = UILib.Colors.Font,
-            Size = 14
-        })
+    -- Incrementar ContentY para próximo elemento
+    self.ContentY = self.ContentY + Slider.Size.Height + 5
+    self.Size.Height = self.Size.Height + Slider.Size.Height + 5
+
+    function Slider:Render(x, y)
+        -- Eixo do slider
+        local sliderX = x
+        local sliderY = y + self.Offset + 20
+        local sliderWidth = self.Size.Width
+        local sliderHeight = 5
         
-        -- Track
-        UILib.Windows[1]:DrawElement("Square", {
-            Position = {position[1], position[2] + 20},
-            Size = {self.Width, 5},
-            Color = UILib.Colors.Main,
-            Filled = true
-        })
-
-        -- Thumb
-        local ratio = (self.Value - self.Min) / (self.Max - self.Min)
-        local thumbX = position[1] + (self.Width * ratio)
-        UILib.Windows[1]:DrawElement("Square", {
-            Position = {thumbX - 5, position[2] + 15},
-            Size = {10, 15},
-            Color = UILib.Colors.Accent,
-            Filled = true
-        })
-
-        -- Interaction
-        local area = {position[1], position[2] + 10, position[1] + self.Width, position[2] + 30}
-        if UILib:MouseInArea(area) then
-            if isleftpressed() then
-                local mouseX = getmouseposition().x
-                self.Value = self.Min + ((mouseX - position[1]) / self.Width) * (self.Max - self.Min)
-                self.Value = math.max(self.Min, math.min(self.Value, self.Max)) -- clamp
-                if callback then safeCall(callback, self.Value) end
+        -- Desenhar barra de fundo
+        SevereUI.DrawFilledBox(
+            {sliderX, sliderY},
+            {sliderX + sliderWidth, sliderY + sliderHeight},
+            SevereUI.MainColor
+        )
+        
+        -- Calcular posição do ponto
+        local percentage = (self.Value - self.Min) / (self.Max - self.Min)
+        local pointX = sliderX + (sliderWidth * percentage)
+        
+        -- Desenhar barra preenchida
+        SevereUI.DrawFilledBox(
+            {sliderX, sliderY},
+            {pointX, sliderY + sliderHeight},
+            SevereUI.AccentColor
+        )
+        
+        -- Desenhar ponto
+        local pointSize = 10
+        SevereUI.DrawFilledBox(
+            {pointX - pointSize/2, sliderY - pointSize/2 + sliderHeight/2},
+            {pointX + pointSize/2, sliderY + pointSize/2 + sliderHeight/2},
+            SevereUI.Colors.Font
+        )
+        
+        -- Desenhar nome e valor
+        SevereUI.DrawString(
+            {sliderX, y + self.Offset},
+            SevereUI.FontColor,
+            self.Name
+        )
+        
+        local valueStr = string.format("%.1f", self.Value)
+        local valueWidth = SevereUI.CalcTextWidth(valueStr)
+        
+        SevereUI.DrawString(
+            {sliderX + sliderWidth - valueWidth, y + self.Offset},
+            SevereUI.FontColor,
+            valueStr
+        )
+        
+        -- Verificar interação
+        local mouseX, mouseY = unpack(SevereUI.Mouse.Position)
+        local hitArea = {
+            sliderX - pointSize, sliderY - pointSize,
+            sliderX + sliderWidth + pointSize, sliderY + pointSize + sliderHeight
+        }
+        
+        if SevereUI.MouseInArea(hitArea) then
+            if SevereUI.Mouse.LeftClicked then
+                self.Dragging = true
+            end
+        end
+        
+        if SevereUI.Mouse.LeftPressed == false then
+            self.Dragging = false
+        end
+        
+        if self.Dragging then
+            -- Calcular novo valor baseado na posição do mouse
+            local newPercentage = math.clamp((mouseX - sliderX) / sliderWidth, 0, 1)
+            local newValue = self.Min + newPercentage * (self.Max - self.Min)
+            
+            -- Atualizar valor e chamar callback
+            if self.Value ~= newValue then
+                self.Value = newValue
+                if self.OnChanged then
+                    self.OnChanged(self.Value)
+                end
             end
         end
     end
-
-    return slider
+    
+    table.insert(self.Elements, Slider)
+    return Slider
 end
 
-function UILib.CreateToggle(text, state, callback)
-    local toggle = {
-        Text = text,
-        State = state or false,
-        Width = 120,
-        Height = 30
+-- =================================================
+-- Componente Toggle
+-- =================================================
+
+function GroupBox:AddToggle(params)
+    local Toggle = {
+        Name = params.Name or "Toggle",
+        Offset = self.ContentY,
+        Size = {Width = self.Size.Width - 20, Height = 25},
+        Value = params.Default or false,
+        OnChanged = params.OnChanged
     }
 
-    function toggle:Render(position)
-        -- Label
-        UILib.Windows[1]:DrawElement("Text", {
-            Position = {position[1], position[2] + 5},
-            Text = self.Text,
-            Color = UILib.Colors.Font,
-            Size = 14
-        })
+    -- Incrementar ContentY para próximo elemento
+    self.ContentY = self.ContentY + Toggle.Size.Height + 5
+    self.Size.Height = self.Size.Height + Toggle.Size.Height + 5
+
+    function Toggle:Render(x, y)
+        -- Dimensões do toggle
+        local toggleSize = 16
+        local toggleX = x + self.Size.Width - toggleSize - 5
+        local toggleY = y + self.Offset + (self.Size.Height - toggleSize) / 2
         
-        -- Toggle box
-        local color = self.State and UILib.Colors.Success or UILib.Colors.Danger
-        UILib.Windows[1]:DrawElement("Square", {
-            Position = {position[1] + self.Width - 30, position[2] + 5},
-            Size = {20, 20},
-            Color = color,
-            Filled = true
-        })
+        -- Verificar clique
+        local mouseX, mouseY = unpack(SevereUI.Mouse.Position)
+        local hitArea = {
+            x, y + self.Offset,
+            x + self.Size.Width, y + self.Offset + self.Size.Height
+        }
         
-        if UILib:MouseInArea({position[1], position[2], position[1] + self.Width, position[2] + self.Height}) then
-            if isleftclicked() then
-                self.State = not self.State
-                if callback then safeCall(callback, self.State) end
+        if SevereUI.MouseInArea(hitArea) and SevereUI.Mouse.LeftClicked then
+            self.Value = not self.Value
+            if self.OnChanged then
+                self.OnChanged(self.Value)
             end
         end
+        
+        -- Desenhar texto
+        SevereUI.DrawString(
+            {x, y + self.Offset + (self.Size.Height - 14) / 2},
+            SevereUI.FontColor,
+            self.Name
+        )
+        
+        -- Desenhar fundo do toggle
+        SevereUI.DrawFilledBox(
+            {toggleX, toggleY},
+            {toggleX + toggleSize, toggleY + toggleSize},
+            SevereUI.MainColor
+        )
+        
+        -- Desenhar estado ativo
+        if self.Value then
+            SevereUI.DrawFilledBox(
+                {toggleX + 2, toggleY + 2},
+                {toggleX + toggleSize - 2, toggleY + toggleSize - 2},
+                SevereUI.AccentColor
+            )
+        end
     end
-
-    return toggle
+    
+    table.insert(self.Elements, Toggle)
+    return Toggle
 end
 
-function UILib.CreateDropdown(options, selected, callback)
-    local dropdown = {
-        Options = options,
-        Selected = selected,
+-- =================================================
+-- Componente Dropdown
+-- =================================================
+
+function GroupBox:AddDropdown(params)
+    local Dropdown = {
+        Name = params.Name or "Dropdown",
+        Offset = self.ContentY,
+        Size = {Width = self.Size.Width - 20, Height = 25},
+        Values = params.Values or {},
+        SelectedIndex = params.Default or 1,
+        OnChanged = params.OnChanged,
         Open = false,
-        Width = 150,
-        ItemHeight = 25,
-        Height = 25 -- Base height
+        HoveredIndex = -1
     }
 
-    function dropdown:Render(position)
-        -- Main Box
-        UILib.Windows[1]:DrawElement("Square", {
-            Position = position,
-            Size = {self.Width, self.ItemHeight},
-            Color = UILib.Colors.Main,
-            Filled = true
-        })
+    -- Incrementar ContentY para próximo elemento
+    self.ContentY = self.ContentY + Dropdown.Size.Height + 5
+    self.Size.Height = self.Size.Height + Dropdown.Size.Height + 5
 
-        -- Selected Text
-        UILib.Windows[1]:DrawElement("Text", {
-            Position = {position[1] + 10, position[2] + 5},
-            Text = self.Selected,
-            Color = UILib.Colors.Font,
-            Size = 14
-        })
-
-        -- Arrow
-        UILib.Windows[1]:DrawElement("Text", {
-            Position = {position[1] + self.Width - 20, position[2] + 5},
-            Text = self.Open and "▲" or "▼",
-            Color = UILib.Colors.Font,
-            Size = 14
-        })
-
-        -- Dynamic height based on open state
-        self.Height = self.Open and (self.ItemHeight * (#self.Options + 1)) or self.ItemHeight
-
-        -- Dropdown Items
-        if self.Open then
-            for i, option in ipairs(self.Options) do
-                local itemPos = {position[1], position[2] + self.ItemHeight * i}
-                UILib.Windows[1]:DrawElement("Square", {
-                    Position = itemPos,
-                    Size = {self.Width, self.ItemHeight},
-                    Color = UILib.Colors.Main,
-                    Filled = true
-                })
-
-                UILib.Windows[1]:DrawElement("Text", {
-                    Position = {itemPos[1] + 10, itemPos[2] + 5},
-                    Text = option,
-                    Color = UILib.Colors.Font,
-                    Size = 14
-                })
-
-                if UILib:MouseInArea({itemPos[1], itemPos[2], itemPos[1] + self.Width, itemPos[2] + self.ItemHeight}) then
-                    if isleftclicked() then
-                        self.Selected = option
-                        self.Open = false
-                        if callback then safeCall(callback, option) end
-                    end
-                end
-            end
-        end
-
-        -- Toggle State
-        if UILib:MouseInArea({position[1], position[2], position[1] + self.Width, position[2] + self.ItemHeight}) then
-            if isleftclicked() then
-                self.Open = not self.Open
-            end
-        end
-    end
-
-    return dropdown
-end
-
-function UILib.CreateTextbox(placeholder, callback)
-    local textbox = {
-        Text = "",
-        Placeholder = placeholder,
-        Width = 200,
-        Height = 30,
-        Active = false
-    }
-
-    function textbox:Render(position)
-        local color = self.Active and UILib.Colors.Hover or UILib.Colors.Main
-        
-        -- Textbox background
-        UILib.Windows[1]:DrawElement("Square", {
-            Position = position,
-            Size = {self.Width, self.Height},
-            Color = color,
-            Filled = true
-        })
-
-        -- Text content
-        local displayText = #self.Text > 0 and self.Text or self.Placeholder
-        local textColor = #self.Text > 0 and UILib.Colors.Font or UILib.Colors.Disabled
-        
-        UILib.Windows[1]:DrawElement("Text", {
-            Position = {position[1] + 10, position[2] + 5},
-            Text = displayText,
-            Color = textColor,
-            Size = 14
-        })
-
-        -- Handle input
-        if UILib:MouseInArea({position[1], position[2], position[1] + self.Width, position[2] + self.Height}) then
-            if isleftclicked() then
-                self.Active = true
-                UILib.InputBuffer = self.Text
-            end
-        elseif isleftclicked() then
-            if self.Active then
-                self.Active = false
-                self.Text = UILib.InputBuffer
-                if callback then safeCall(callback, self.Text) end
-            end
-        end
-        
-        if self.Active then
-            self.Text = UILib.InputBuffer
-        end
-    end
-
-    return textbox
-}
-
-function UILib.CreateColorPicker(default, callback)
-    local colorPicker = {
-        Color = default or {255, 255, 255},
-        Open = false,
-        Width = 30,
-        Height = 30,
-        PickerSize = 150
-    }
-
-    function colorPicker:Render(position)
-        -- Color preview box
-        UILib.Windows[1]:DrawElement("Square", {
-            Position = position,
-            Size = {self.Width, self.Height},
-            Color = self.Color,
-            Filled = true
-        })
-        
-        -- Toggle open/close on click
-        if UILib:MouseInArea({position[1], position[2], position[1] + self.Width, position[2] + self.Height}) then
-            if isleftclicked() then
-                self.Open = not self.Open
-            end
-        end
-        
-        -- Color picker UI
-        if self.Open then
-            local pickerPos = {position[1], position[2] + self.Height + 5}
-            
-            -- Background
-            UILib.Windows[1]:DrawElement("Square", {
-                Position = pickerPos,
-                Size = {self.PickerSize, self.PickerSize},
-                Color = UILib.Colors.Main,
-                Filled = true
-            })
-            
-            -- RGB sliders
-            local sliderY = pickerPos[2] + 10
-            
-            -- Red slider
-            UILib.Windows[1]:DrawElement("Text", {
-                Position = {pickerPos[1] + 10, sliderY},
-                Text = "R: " .. self.Color[1],
-                Color = {255, 0, 0},
-                Size = 14
-            })
-            
-            UILib.Windows[1]:DrawElement("Square", {
-                Position = {pickerPos[1] + 10, sliderY + 20},
-                Size = {self.PickerSize - 20, 5},
-                Color = {100, 0, 0},
-                Filled = true
-            })
-            
-            UILib.Windows[1]:DrawElement("Square", {
-                Position = {pickerPos[1] + 10 + ((self.PickerSize - 20) * (self.Color[1] / 255)), sliderY + 15},
-                Size = {10, 15},
-                Color = {255, 0, 0},
-                Filled = true
-            })
-            
-            -- Green slider
-            sliderY = sliderY + 40
-            UILib.Windows[1]:DrawElement("Text", {
-                Position = {pickerPos[1] + 10, sliderY},
-                Text = "G: " .. self.Color[2],
-                Color = {0, 255, 0},
-                Size = 14
-            })
-            
-            UILib.Windows[1]:DrawElement("Square", {
-                Position = {pickerPos[1] + 10, sliderY + 20},
-                Size = {self.PickerSize - 20, 5},
-                Color = {0, 100, 0},
-                Filled = true
-            })
-            
-            UILib.Windows[1]:DrawElement("Square", {
-                Position = {pickerPos[1] + 10 + ((self.PickerSize - 20) * (self.Color[2] / 255)), sliderY + 15},
-                Size = {10, 15},
-                Color = {0, 255, 0},
-                Filled = true
-            })
-            
-            -- Blue slider
-            sliderY = sliderY + 40
-            UILib.Windows[1]:DrawElement("Text", {
-                Position = {pickerPos[1] + 10, sliderY},
-                Text = "B: " .. self.Color[3],
-                Color = {0, 0, 255},
-                Size = 14
-            })
-            
-            UILib.Windows[1]:DrawElement("Square", {
-                Position = {pickerPos[1] + 10, sliderY + 20},
-                Size = {self.PickerSize - 20, 5},
-                Color = {0, 0, 100},
-                Filled = true
-            })
-            
-            UILib.Windows[1]:DrawElement("Square", {
-                Position = {pickerPos[1] + 10 + ((self.PickerSize - 20) * (self.Color[3] / 255)), sliderY + 15},
-                Size = {10, 15},
-                Color = {0, 0, 255},
-                Filled = true
-            })
-            
-            -- Handle slider interactions
-            if isleftpressed() then
-                local mouse = getmouseposition()
-                
-                -- Red slider
-                if UILib:MouseInArea({pickerPos[1] + 10, pickerPos[2] + 30, pickerPos[1] + self.PickerSize - 10, pickerPos[2] + 40}) then
-                    local ratio = (mouse.x - (pickerPos[1] + 10)) / (self.PickerSize - 20)
-                    self.Color[1] = math.floor(math.max(0, math.min(255, ratio * 255)))
-                    if callback then safeCall(callback, self.Color) end
-                end
-                
-                -- Green slider
-                if UILib:MouseInArea({pickerPos[1] + 10, pickerPos[2] + 70, pickerPos[1] + self.PickerSize - 10, pickerPos[2] + 80}) then
-                    local ratio = (mouse.x - (pickerPos[1] + 10)) / (self.PickerSize - 20)
-                    self.Color[2] = math.floor(math.max(0, math.min(255, ratio * 255)))
-                    if callback then safeCall(callback, self.Color) end
-                end
-                
-                -- Blue slider
-                if UILib:MouseInArea({pickerPos[1] + 10, pickerPos[2] + 110, pickerPos[1] + self.PickerSize - 10, pickerPos[2] + 120}) then
-                    local ratio = (mouse.x - (pickerPos[1] + 10)) / (self.PickerSize - 20)
-                    self.Color[3] = math.floor(math.max(0, math.min(255, ratio * 255)))
-                    if callback then safeCall(callback, self.Color) end
-                end
-            end
-            
-            -- Close if clicked outside
-            if isleftclicked() and not UILib:MouseInArea({pickerPos[1], pickerPos[2], pickerPos[1] + self.PickerSize, pickerPos[2] + self.PickerSize}) then
-                self.Open = false
-            end
-        end
-    end
-
-    return colorPicker
-end
-
-function UILib.CreateLabel(text)
-    local label = {
-        Text = text,
-        Height = 20
-    }
-    
-    function label:Render(position)
-        UILib.Windows[1]:DrawElement("Text", {
-            Position = position,
-            Text = self.Text,
-            Color = UILib.Colors.Font,
-            Size = 14
-        })
-    end
-    
-    return label
-end
-
-function UILib.CreateKeyBind(default, callback)
-    local keybind = {
-        Key = default or "None",
-        Listening = false,
-        Width = 100,
-        Height = 25
-    }
-    
-    function keybind:Render(position)
-        -- Background
-        UILib.Windows[1]:DrawElement("Square", {
-            Position = position,
-            Size = {self.Width, self.Height},
-            Color = self.Listening and UILib.Colors.Accent or UILib.Colors.Main,
-            Filled = true
-        })
-        
-        -- Text
-        UILib.Windows[1]:DrawElement("Text", {
-            Position = {position[1] + 10, position[2] + 5},
-            Text = self.Listening and "Press Key..." or self.Key,
-            Color = UILib.Colors.Font,
-            Size = 14
-        })
-        
-        -- Handle interactions
-        if UILib:MouseInArea({position[1], position[2], position[1] + self.Width, position[2] + self.Height}) then
-            if isleftclicked() then
-                self.Listening = true
-            end
-        elseif isleftclicked() and self.Listening then
-            self.Listening = false
-        end
-        
-        -- Key detection
-        if self.Listening then
-            local key = getpressedkey and getpressedkey() or ""
-            if key ~= "" and key ~= "None" then
-                self.Key = key
-                self.Listening = false
-                if callback then safeCall(callback, key) end
-            end
-        end
-    end
-    
-    return keybind
-end
-
---[[
-    Notification System
-]]
-
-function UILib:Notify(title, message, duration)
-    local notification = {
-        Title = title,
-        Message = message,
-        StartTime = tick(),
-        Duration = duration or 5,
-        Position = {10, 10 + (#self.Notifications * 80)}
-    }
-
-    table.insert(self.Notifications, 1, notification)
-
-    spawn(function()
-        wait(duration or 5)
-        for i, n in ipairs(self.Notifications) do
-            if n == notification then
-                table.remove(self.Notifications, i)
+    -- Métodos auxiliares
+    function Dropdown:SetValue(value)
+        for i, v in ipairs(self.Values) do
+            if v == value then
+                self.SelectedIndex = i
                 break
             end
         end
-    end)
-end
-
-function UILib:RenderNotifications()
-    for i, notification in ipairs(self.Notifications) do
-        local alpha = 1 - ((tick() - notification.StartTime) / notification.Duration)
-        
-        self.Windows[1]:DrawElement("Square", {
-            Position = {notification.Position[1], notification.Position[2] + (i-1)*85},
-            Size = {300, 80},
-            Color = {0, 0, 0, alpha * 0.8},
-            Filled = true
-        })
-
-        self.Windows[1]:DrawElement("Text", {
-            Position = {notification.Position[1] + 10, notification.Position[2] + 10 + (i-1)*85},
-            Text = notification.Title,
-            Color = {255, 255, 255, alpha},
-            Size = 16
-        })
-
-        self.Windows[1]:DrawElement("Text", {
-            Position = {notification.Position[1] + 10, notification.Position[2] + 35 + (i-1)*85},
-            Text = notification.Message,
-            Color = {200, 200, 200, alpha},
-            Size = 14
-        })
     end
-end
 
---[[
-    Input Handling
-]]
+    function Dropdown:SetValues(newValues)
+        if type(newValues) == "table" then
+            self.Values = newValues
+            self.SelectedIndex = math.min(self.SelectedIndex, #newValues)
+            if self.SelectedIndex < 1 then self.SelectedIndex = 1 end
+        end
+    end
 
-spawn(function()
-    while true do
-        pcall(function()
-            if UILib.Active then
-                -- Handle Keyboard Input
-                for i = 32, 126 do
-                    if iskeydown and iskeydown(string.char(i)) and tick() - UILib.LastInput > 0.1 then
-                        UILib.InputBuffer = UILib.InputBuffer .. string.char(i):lower()
-                        UILib.LastInput = tick()
+    function Dropdown:Render(x, y)
+        -- Desenhar nome
+        SevereUI.DrawString(
+            {x, y + self.Offset - 15},
+            SevereUI.FontColor,
+            self.Name
+        )
+        
+        -- Desenhar caixa principal
+        SevereUI.DrawFilledBox(
+            {x, y + self.Offset},
+            {x + self.Size.Width, y + self.Offset + self.Size.Height},
+            self.Open and SevereUI.AccentColor or SevereUI.MainColor
+        )
+        
+        -- Desenhar texto selecionado
+        local selectedText = self.Values[self.SelectedIndex] or "None"
+        SevereUI.DrawString(
+            {x + 5, y + self.Offset + 5},
+            SevereUI.FontColor,
+            selectedText
+        )
+        
+        -- Desenhar seta
+        local arrowX = x + self.Size.Width - 15
+        local arrowY = y + self.Offset + 10
+        
+        -- Triângulo para baixo
+        SevereUI.DrawFilledBox(
+            {arrowX - 5, arrowY},
+            {arrowX + 5, arrowY + 1},
+            SevereUI.FontColor
+        )
+        SevereUI.DrawFilledBox(
+            {arrowX - 4, arrowY + 1},
+            {arrowX + 4, arrowY + 2},
+            SevereUI.FontColor
+        )
+        SevereUI.DrawFilledBox(
+            {arrowX - 3, arrowY + 2},
+            {arrowX + 3, arrowY + 3},
+            SevereUI.FontColor
+        )
+        SevereUI.DrawFilledBox(
+            {arrowX - 2, arrowY + 3},
+            {arrowX + 2, arrowY + 4},
+            SevereUI.FontColor
+        )
+        SevereUI.DrawFilledBox(
+            {arrowX - 1, arrowY + 4},
+            {arrowX + 1, arrowY + 5},
+            SevereUI.FontColor
+        )
+        
+        -- Verificar clique na caixa principal
+        local dropdownArea = {
+            x, y + self.Offset,
+            x + self.Size.Width, y + self.Offset + self.Size.Height
+        }
+        
+        if SevereUI.MouseInArea(dropdownArea) and SevereUI.Mouse.LeftClicked then
+            self.Open = not self.Open
+            self.HoveredIndex = -1
+        end
+        
+        -- Renderizar lista suspensa
+        if self.Open and #self.Values > 0 then
+            local itemHeight = 20
+            local listHeight = #self.Values * itemHeight
+            
+            -- Aumentar temporariamente a altura da caixa
+            local originalHeight = self.Size.Height
+            self.Size.Height = self.Size.Height + listHeight
+            
+            -- Desenhar fundo da lista
+            SevereUI.DrawFilledBox(
+                {x, y + self.Offset + originalHeight},
+                {x + self.Size.Width, y + self.Offset + originalHeight + listHeight},
+                SevereUI.MainColor
+            )
+            
+            -- Verificar hover e renderizar itens
+            local mouseX, mouseY = unpack(SevereUI.Mouse.Position)
+            local newHoveredIndex = -1
+            
+            for i, value in ipairs(self.Values) do
+                local itemY = y + self.Offset + originalHeight + (i-1) * itemHeight
+                
+                -- Verificar mouse over
+                if mouseX >= x and mouseX <= x + self.Size.Width and
+                   mouseY >= itemY and mouseY <= itemY + itemHeight then
+                    newHoveredIndex = i
+                    
+                    -- Desenhar highlight
+                    SevereUI.DrawFilledBox(
+                        {x, itemY},
+                        {x + self.Size.Width, itemY + itemHeight},
+                        SevereUI.AccentColor
+                    )
+                end
+                
+                -- Desenhar texto do item
+                SevereUI.DrawString(
+                    {x + 5, itemY + 3},
+                    SevereUI.FontColor,
+                    tostring(value)
+                )
+            end
+            
+            -- Atualizar índice destacado
+            self.HoveredIndex = newHoveredIndex
+            
+            -- Verificar seleção
+            if SevereUI.Mouse.LeftClicked and self.HoveredIndex > 0 then
+                if self.SelectedIndex ~= self.HoveredIndex then
+                    self.SelectedIndex = self.HoveredIndex
+                    if self.OnChanged then
+                        self.OnChanged(self.Values[self.SelectedIndex])
                     end
                 end
-
-                -- Handle Backspace
-                if iskeydown and iskeydown("Backspace") and #UILib.InputBuffer > 0 then
-                    UILib.InputBuffer = UILib.InputBuffer:sub(1, -2)
-                    wait(0.1)
-                end
+                self.Open = false
             end
-        end)
-        wait(0.01)
+            
+            -- Restaurar altura original
+            self.Size.Height = originalHeight
+        end
     end
-end)
+    
+    table.insert(self.Elements, Dropdown)
+    return Dropdown
+end
 
---[[
-    Main Loop
-]]
+-- =================================================
+-- Componente Input
+-- =================================================
 
-spawn(function()
-    while true do
-        pcall(function()
-            if UILib.Active then
-                -- Clear Screen
-                Drawing.clear()
+function GroupBox:AddInput(params)
+    local Input = {
+        Name = params.Name or "Input",
+        Offset = self.ContentY,
+        Size = {Width = self.Size.Width - 20, Height = 25},
+        Value = params.Default or "",
+        Placeholder = params.Placeholder or "Digite aqui...",
+        MaxLength = params.MaxLength or 50,
+        OnChange = params.OnChange,
+        Focused = false,
+        CursorVisible = false,
+        CursorTimer = 0
+    }
 
-                -- Update Mouse
-                local mouse = getmouseposition()
+    -- Incrementar ContentY para próximo elemento
+    self.ContentY = self.ContentY + Input.Size.Height + 15
+    self.Size.Height = self.Size.Height + Input.Size.Height + 15
+
+    function Input:Render(x, y)
+        -- Desenhar nome
+        SevereUI.DrawString(
+            {x, y + self.Offset - 15},
+            SevereUI.FontColor,
+            self.Name
+        )
+        
+        -- Desenhar caixa de entrada
+        local bgColor = self.Focused and SevereUI.AccentColor or SevereUI.MainColor
+        
+        SevereUI.DrawFilledBox(
+            {x, y + self.Offset},
+            {x + self.Size.Width, y + self.Offset + self.Size.Height},
+            bgColor
+        )
+        
+        -- Texto ou placeholder
+        local displayText = self.Value ~= "" and self.Value or self.Placeholder
+        local textColor = self.Value ~= "" and SevereUI.FontColor or {127, 127, 127}
+        
+        SevereUI.DrawString(
+            {x + 5, y + self.Offset + 5},
+            textColor,
+            string.sub(displayText, 1, self.MaxLength)
+        )
+        
+        -- Cursor piscante
+        if self.Focused then
+            local cursorTime = (time() - self.CursorTimer) % 1
+            if cursorTime > 0.5 then
+                local textWidth = SevereUI.CalcTextWidth(self.Value)
                 
-                -- Render All Windows
-                for _, window in ipairs(UILib.Windows) do
-                    window:Render()
-                end
-
-                -- Render Notifications
-                UILib:RenderNotifications()
-
-                -- Draw Cursor
-                local circle = Drawing.new("Circle")
-                pcall(function()
-                    circle.Position = Vector2.new(mouse.x, mouse.y)
-                    circle.Color = UILib.Colors.Accent
-                    circle.Radius = 5
-                    circle.Filled = true
-                    circle.Visible = true
-                end)
-                
-                task.delay(0.1, function()
-                    pcall(function() circle:Remove() end)
-                end)
+                SevereUI.DrawFilledBox(
+                    {x + 5 + textWidth, y + self.Offset + 3},
+                    {x + 5 + textWidth + 1, y + self.Offset + self.Size.Height - 3},
+                    SevereUI.FontColor
+                )
             end
-        end)
-        wait(0.01)
+        end
+        
+        -- Verificar clique
+    local inputArea = {
+        x, y + self.Offset,
+        x + self.Size.Width, y + self.Offset + self.Size.Height
+    }
+    
+    if SevereUI.MouseInArea(inputArea) and SevereUI.Mouse.LeftClicked then
+        self.Focused = true
+        self.CursorTimer = time()
+        
+        -- Resetar foco em outros inputs se houver
+        for _, element in ipairs(self.GroupBox.Elements) do
+            if element ~= self and element.Focused then
+                element.Focused = false
+            end
+        end
+    elseif SevereUI.Mouse.LeftClicked and self.Focused then
+        self.Focused = false
     end
-end)
+    
+    -- Capturar entrada de texto quando focado
+    if self.Focused then
+        -- Obter tecla pressionada
+        local key = SevereUI.GetKey()
+        
+        if key then
+            -- Backspace
+            if key == 8 then
+                self.Value = string.sub(self.Value, 1, -2)
+                if self.OnChange then self.OnChange(self.Value) end
+            -- Enter
+            elseif key == 13 then
+                self.Focused = false
+            -- Caracteres válidos
+            elseif key >= 32 and key <= 126 and #self.Value < self.MaxLength then
+                local char = string.char(key)
+                self.Value = self.Value .. char
+                if self.OnChange then self.OnChange(self.Value) end
+            end
+        end
+    end
+}
 
--- Helper to create Vector2 objects for Drawing functions
-function UILib:CreateVector2(x, y)
-    if typeof(Vector2) == "userdata" then
-        return Vector2.new(x, y)
-    else
-        -- Fallback implementation for environments without Vector2
+table.insert(self.Elements, Input)
+return Input
+end
+
+-- =================================================
+-- Componente ColorPicker
+-- =================================================
+
+function GroupBox:AddColorPicker(params)
+    local ColorPicker = {
+        Name = params.Name or "Color",
+        Offset = self.ContentY,
+        Size = {Width = self.Size.Width - 20, Height = 25},
+        Value = params.Default or {255, 255, 255},
+        OnChanged = params.OnChanged,
+        Open = false,
+        Hue = 0,
+        Saturation = 1,
+        Brightness = 0.5
+    }
+
+    -- Incrementar ContentY para próximo elemento
+    self.ContentY = self.ContentY + ColorPicker.Size.Height + 5
+    self.Size.Height = self.Size.Height + ColorPicker.Size.Height + 5
+
+    -- Conversão HSB para RGB
+    local function HSBToRGB(h, s, b)
+        h = h % 360
+        local c = b * s
+        local x = c * (1 - math.abs((h/60) % 2 - 1))
+        local m = b - c
+        
+        local r, g, b = 0, 0, 0
+        
+        if h < 60 then
+            r, g, b = c, x, 0
+        elseif h < 120 then
+            r, g, b = x, c, 0
+        elseif h < 180 then
+            r, g, b = 0, c, x
+        elseif h < 240 then
+            r, g, b = 0, x, c
+        elseif h < 300 then
+            r, g, b = x, 0, c
+        else
+            r, g, b = c, 0, x
+        end
+        
         return {
-            x = x,
-            y = y,
-            Magnitude = function(self)
-                return math.sqrt(self.x * self.x + self.y * self.y)
-            end,
-            Unit = function(self)
-                local mag = self:Magnitude()
-                if mag > 0 then
-                    return UILib:CreateVector2(self.x / mag, self.y / mag)
-                else
-                    return UILib:CreateVector2(0, 0)
-                end
-            end
+            math.floor((r + m) * 255),
+            math.floor((g + m) * 255),
+            math.floor((b + m) * 255)
         }
     end
-end
 
--- Utility to convert table positions to Vector2 when needed
-function UILib:ConvertToVector(position)
-    if type(position) == "table" then
-        return self:CreateVector2(position[1], position[2])
+    function ColorPicker:Render(x, y)
+        -- Desenhar nome
+        SevereUI.DrawString(
+            {x, y + self.Offset - 15},
+            SevereUI.FontColor,
+            self.Name
+        )
+        
+        -- Desenhar caixa de seleção
+        local bgColor = self.Open and SevereUI.AccentColor or SevereUI.MainColor
+        
+        SevereUI.DrawFilledBox(
+            {x, y + self.Offset},
+            {x + self.Size.Width, y + self.Offset + self.Size.Height},
+            bgColor
+        )
+        
+        -- Preview da cor selecionada
+        SevereUI.DrawFilledBox(
+            {x + 5, y + self.Offset + 5},
+            {x + 25, y + self.Offset + self.Size.Height - 5},
+            self.Value
+        )
+        
+        -- Texto RGB
+        local rgbText = string.format("RGB(%d, %d, %d)", self.Value[1], self.Value[2], self.Value[3])
+        
+        SevereUI.DrawString(
+            {x + 35, y + self.Offset + 5},
+            SevereUI.FontColor,
+            rgbText
+        )
+        
+        -- Verificar clique na caixa principal
+        local pickerArea = {
+            x, y + self.Offset,
+            x + self.Size.Width, y + self.Offset + self.Size.Height
+        }
+        
+        if SevereUI.MouseInArea(pickerArea) and SevereUI.Mouse.LeftClicked then
+            self.Open = not self.Open
+        end
+        
+        -- Renderizar seletor de cores se aberto
+        if self.Open then
+            local pickerWidth = self.Size.Width
+            local pickerHeight = 150
+            
+            -- Fundo do seletor
+            SevereUI.DrawFilledBox(
+                {x, y + self.Offset + self.Size.Height},
+                {x + pickerWidth, y + self.Offset + self.Size.Height + pickerHeight},
+                SevereUI.MainColor
+            )
+            
+            -- Barra de matiz
+            local hueHeight = 20
+            for i = 0, pickerWidth - 10 do
+                local hue = (i / (pickerWidth - 10)) * 360
+                local color = HSBToRGB(hue, 1, 1)
+                
+                SevereUI.DrawFilledBox(
+                    {x + 5 + i, y + self.Offset + self.Size.Height + 5},
+                    {x + 6 + i, y + self.Offset + self.Size.Height + 5 + hueHeight},
+                    color
+                )
+            end
+            
+            -- Área de seleção de saturação/brilho
+            local sbAreaSize = 100
+            local sbAreaX = x + 5
+            local sbAreaY = y + self.Offset + self.Size.Height + 5 + hueHeight + 5
+            
+            -- Renderizar gradiente de SB (simplificado)
+            for sx = 0, sbAreaSize do
+                for sy = 0, sbAreaSize do
+                    local s = sx / sbAreaSize
+                    local b = 1 - (sy / sbAreaSize)
+                    local color = HSBToRGB(self.Hue, s, b)
+                    
+                    SevereUI.DrawFilledBox(
+                        {sbAreaX + sx, sbAreaY + sy},
+                        {sbAreaX + sx + 1, sbAreaY + sy + 1},
+                        color
+                    )
+                end
+            end
+            
+            -- Marcador de posição na barra de matiz
+            local hueMarkerX = x + 5 + (self.Hue / 360) * (pickerWidth - 10)
+            
+            SevereUI.DrawFilledBox(
+                {hueMarkerX - 2, y + self.Offset + self.Size.Height + 5},
+                {hueMarkerX + 2, y + self.Offset + self.Size.Height + 5 + hueHeight},
+                SevereUI.FontColor
+            )
+            
+            -- Marcador na área de SB
+            local sbMarkerX = sbAreaX + (self.Saturation * sbAreaSize)
+            local sbMarkerY = sbAreaY + ((1 - self.Brightness) * sbAreaSize)
+            
+            SevereUI.DrawFilledBox(
+                {sbMarkerX - 3, sbMarkerY - 3},
+                {sbMarkerX + 3, sbMarkerY + 3},
+                SevereUI.FontColor
+            )
+            
+            -- Verificar interações
+            local mouseX, mouseY = unpack(SevereUI.Mouse.Position)
+            
+            -- Interação com barra de matiz
+            local hueBarArea = {
+                x + 5, y + self.Offset + self.Size.Height + 5,
+                x + pickerWidth - 5, y + self.Offset + self.Size.Height + 5 + hueHeight
+            }
+            
+            if SevereUI.MouseInArea(hueBarArea) and SevereUI.Mouse.LeftPressed then
+                local newHue = ((mouseX - (x + 5)) / (pickerWidth - 10)) * 360
+                self.Hue = math.clamp(newHue, 0, 360)
+                self.Value = HSBToRGB(self.Hue, self.Saturation, self.Brightness)
+                
+                if self.OnChanged then
+                    self.OnChanged(self.Value)
+                end
+            end
+            
+            -- Interação com área de SB
+            local sbArea = {
+                sbAreaX, sbAreaY,
+                sbAreaX + sbAreaSize, sbAreaY + sbAreaSize
+            }
+            
+            if SevereUI.MouseInArea(sbArea) and SevereUI.Mouse.LeftPressed then
+                local newS = (mouseX - sbAreaX) / sbAreaSize
+                local newB = 1 - ((mouseY - sbAreaY) / sbAreaSize)
+                
+                self.Saturation = math.clamp(newS, 0, 1)
+                self.Brightness = math.clamp(newB, 0, 1)
+                self.Value = HSBToRGB(self.Hue, self.Saturation, self.Brightness)
+                
+                if self.OnChanged then
+                    self.OnChanged(self.Value)
+                end
+            end
+        end
     end
-    return position
+    
+    table.insert(self.Elements, ColorPicker)
+    return ColorPicker
 end
 
-return UILib
+-- =================================================
+-- Componentes utilitários
+-- =================================================
+
+function GroupBox:AddTitle(text)
+    local Title = {
+        Text = text,
+        Offset = self.ContentY,
+        Size = {Width = self.Size.Width - 20, Height = 30}
+    }
+    
+    -- Incrementar ContentY para próximo elemento
+    self.ContentY = self.ContentY + Title.Size.Height
+    self.Size.Height = self.Size.Height + Title.Size.Height
+
+    function Title:Render(x, y)
+        -- Desenhar texto
+        SevereUI.DrawString(
+            {x, y + self.Offset + 5},
+            SevereUI.FontColor,
+            self.Text
+        )
+        
+        -- Desenhar linha separadora
+        SevereUI.DrawFilledBox(
+            {x, y + self.Offset + 25},
+            {x + self.Size.Width, y + self.Offset + 26},
+            SevereUI.AccentColor
+        )
+    end
+    
+    table.insert(self.Elements, Title)
+    return Title
+end
+
+function GroupBox:AddLabel(text, color)
+    local Label = {
+        Text = text,
+        Color = color or SevereUI.FontColor,
+        Offset = self.ContentY,
+        Size = {Width = self.Size.Width - 20, Height = 20}
+    }
+    
+    -- Incrementar ContentY para próximo elemento
+    self.ContentY = self.ContentY + Label.Size.Height
+    self.Size.Height = self.Size.Height + Label.Size.Height
+
+    function Label:Render(x, y)
+        -- Desenhar texto
+        SevereUI.DrawString(
+            {x, y + self.Offset + 3},
+            self.Color,
+            self.Text
+        )
+    end
+    
+    table.insert(self.Elements, Label)
+    return Label
+end
+
+function GroupBox:AddSeparator()
+    local Separator = {
+        Offset = self.ContentY,
+        Size = {Width = self.Size.Width - 20, Height = 10}
+    }
+    
+    -- Incrementar ContentY para próximo elemento
+    self.ContentY = self.ContentY + Separator.Size.Height
+    self.Size.Height = self.Size.Height + Separator.Size.Height
+
+    function Separator:Render(x, y)
+        -- Desenhar linha
+        SevereUI.DrawFilledBox(
+            {x, y + self.Offset + 5},
+            {x + self.Size.Width, y + self.Offset + 6},
+            SevereUI.OutlineColor
+        )
+    end
+    
+    table.insert(self.Elements, Separator)
+    return Separator
+end
+
+function GroupBox:AddBlank(size)
+    local Blank = {
+        Offset = self.ContentY,
+        Size = {Width = self.Size.Width - 20, Height = size or 10}
+    }
+    
+    -- Incrementar ContentY para próximo elemento
+    self.ContentY = self.ContentY + Blank.Size.Height
+    self.Size.Height = self.Size.Height + Blank.Size.Height
+
+    function Blank:Render(x, y)
+        -- Elemento em branco, não renderiza nada
+    end
+    
+    table.insert(self.Elements, Blank)
+    return Blank
+end
+
+-- =================================================
+-- Sistema de loop principal
+-- =================================================
+
+-- Função principal de atualização
+function SevereUI.Update()
+    -- Atualizar estado do mouse
+    SevereUI.Mouse.Position = {GetMousePosition()}
+    local prevLeftPressed = SevereUI.Mouse.LeftPressed
+    local prevRightPressed = SevereUI.Mouse.RightPressed
+    
+    SevereUI.Mouse.LeftPressed = IsMouseDown(0) -- Botão esquerdo
+    SevereUI.Mouse.RightPressed = IsMouseDown(1) -- Botão direito
+    
+    -- Detectar cliques (pressed → released)
+    SevereUI.Mouse.LeftClicked = prevLeftPressed and not SevereUI.Mouse.LeftPressed
+    SevereUI.Mouse.RightClicked = prevRightPressed and not SevereUI.Mouse.RightPressed
+end
+
+-- Função principal de renderização
+function SevereUI.Render()
+    for _, window in ipairs(SevereUI.Windows) do
+        window:Render()
+    end
+end
+
+-- Loop principal (apenas exemplo, deve ser chamado pelo usuário)
+function SevereUI.MainLoop()
+    while true do
+        SevereUI.Update()
+        SevereUI.Render()
+        wait(0.01) -- 100 FPS
+    end
+end
+
+-- Retornar a biblioteca para uso
+return SevereUI
