@@ -478,18 +478,17 @@ end
 
 -- Adicionar uma função de renderização master que gerencia a ordem Z
 function SevereUI:RenderAll()
-    -- Primeiro, atualize o estado do mouse para todos
-    self:UpdateMouseState()
+    self:UpdateDeadZones()
+    self:UpdateNotifications()
     
-    -- Renderizar todas as janelas na ordem correta (do mais baixo para o mais alto Z-index)
-    for i, window in ipairs(SevereUI.Windows) do
-        window:Render()
-        
-        -- Renderizar ferramentas abertas
-        if window.OpenTool then
-            window.OpenTool:Render()
+    for i, window in ipairs(self.Windows) do
+        if window.visible then
+            window:Render()
+            self:UpdateTooltips()
         end
     end
+    
+    self:UpdateNotifications()
 end
 
 -- Nova função de renderização para uma janela específica
@@ -974,6 +973,203 @@ function SevereUI:CreateToggle(options)
     table.insert(parent.elements, toggle)
     
     return toggle
+end
+
+function SevereUI:UpdateDeadZones()
+    if #self.Windows == 0 then return end
+    
+    -- Obter janela com maior Z-index
+    local topWindow = self.Windows[#self.Windows]
+    local pos = topWindow.frame.Position
+    local size = topWindow.frame.Size
+    
+    -- Definir área de dead zone dinâmica
+    self.DeadZone = {
+        pos[1], pos[2],
+        pos[1] + size[1],
+        pos[2] + size[2]
+    }
+end
+
+function SevereUI:IsInDeadZone(x, y)
+    if not self.DeadZone then return false end
+    return x >= self.DeadZone[1] and y >= self.DeadZone[2] and
+           x <= self.DeadZone[3] and y <= self.DeadZone[4]
+end
+
+function SevereUI:CreateTooltip(element, text)
+    element.tooltip = {
+        text = text,
+        active = false,
+        drawing = {
+            bg = Drawing.new("Square"),
+            text = Drawing.new("Text")
+        }
+    }
+    
+    -- Configurar estilo
+    local theme = self.DefaultConfig.theme
+    element.tooltip.drawing.bg.Color = theme.background
+    element.tooltip.drawing.bg.Transparency = 0.8
+    element.tooltip.drawing.text.Color = theme.text
+    element.tooltip.drawing.text.Size = self.DefaultConfig.textSize
+end
+
+function SevereUI:UpdateTooltips()
+    local mousePos = getmouseposition()
+    
+    for _, window in ipairs(self.Windows) do
+        for _, element in ipairs(window.elements) do
+            if element.tooltip and element:MouseInArea() then
+                -- Posicionar tooltip
+                local offset = 15
+                element.tooltip.drawing.bg.Position = {mousePos.x + offset, mousePos.y + offset}
+                element.tooltip.drawing.text.Position = {mousePos.x + offset + 5, mousePos.y + offset + 3}
+                
+                -- Atualizar texto
+                element.tooltip.drawing.text.Text = element.tooltip.text
+                
+                -- Calcular tamanho
+                local textWidth = Drawing.CalcTextWidth(element.tooltip.text)
+                element.tooltip.drawing.bg.Size = {textWidth + 10, self.DefaultConfig.textSize + 6}
+                
+                -- Mostrar
+                element.tooltip.drawing.bg.Visible = true
+                element.tooltip.drawing.text.Visible = true
+            else
+                if element.tooltip then
+                    element.tooltip.drawing.bg.Visible = false
+                    element.tooltip.drawing.text.Visible = false
+                end
+            end
+        end
+    end
+end
+
+function SevereUI:CreateColorPicker(options)
+    local picker = {
+        type = "colorpicker",
+        value = options.default or {255, 255, 255},
+        open = false,
+        rainbow = false,
+        elements = {}
+    }
+    
+    -- Elementos de desenho
+    picker.elements.main = Drawing.new("Square")
+    picker.elements.selector = Drawing.new("Circle")
+    
+    -- Configurar aparência
+    picker.elements.main.Filled = true
+    picker.elements.selector.Thickness = 2
+    
+    function picker:UpdateColor()
+        if self.rainbow then
+            self.value = self:CalculateRainbow()
+        end
+        self.elements.main.Color = self.value
+    end
+    
+    function picker:CalculateRainbow()
+        local hue = (os.clock() * 0.5) % 1
+        local r, g, b = HSVToRGB(hue, 1, 1)
+        return {r * 255, g * 255, b * 255}
+    end
+    
+    return picker
+end
+
+function SevereUI:SetToggleKey(window, key)
+    window.toggleKey = key:upper()
+    
+    spawn(function()
+        while true do
+            if iskeypressed(window.toggleKey) then
+                window.visible = not window.visible
+                self:ManageWindowZOrder(window)
+                wait(0.5) -- Debounce
+            end
+            wait()
+        end
+    end)
+end
+
+function SevereUI:Notify(text, duration)
+    local notification = {
+        lines = {},
+        startTime = os.clock(),
+        duration = duration or 5,
+        elements = {}
+    }
+    
+    -- Quebrar texto em linhas
+    for line in text:gmatch("[^\n]+") do
+        table.insert(notification.lines, line)
+    end
+    
+    -- Criar elementos de desenho
+    local height = #notification.lines * (self.DefaultConfig.textSize + 2) + 10
+    notification.elements.bg = Drawing.new("Square")
+    notification.elements.bg.Color = self.DefaultConfig.theme.background
+    notification.elements.bg.Transparency = 0.9
+    
+    notification.elements.texts = {}
+    for i, line in ipairs(notification.lines) do
+        local text = Drawing.new("Text")
+        text.Text = line
+        text.Color = self.DefaultConfig.theme.text
+        text.Size = self.DefaultConfig.textSize
+        table.insert(notification.elements.texts, text)
+    end
+    
+    table.insert(self.Notifications, notification)
+end
+
+function SevereUI:UpdateNotifications()
+    local currentTime = os.clock()
+    
+    for i = #self.Notifications, 1, -1 do
+        local notif = self.Notifications[i]
+        local progress = (currentTime - notif.startTime) / notif.duration
+        
+        if progress >= 1 then
+            -- Remover elementos
+            notif.elements.bg:Remove()
+            for _, text in ipairs(notif.elements.texts) do
+                text:Remove()
+            end
+            table.remove(self.Notifications, i)
+        else
+            -- Atualizar posições
+            local yPos = 10 + (i-1) * 60
+            notif.elements.bg.Position = {10, yPos}
+            
+            for j, text in ipairs(notif.elements.texts) do
+                text.Position = {15, yPos + 5 + (j-1)*(self.DefaultConfig.textSize + 2)}
+            end
+        end
+    end
+end
+
+function SevereUI:CreateElement(elementType, config)
+    local element = Drawing.new(elementType)
+    
+    -- Mapear configurações
+    if elementType == "Text" then
+        element.Text = config.text or ""
+        element.Font = config.font or self.DefaultConfig.font
+        element.Center = config.center or false
+    elseif elementType == "Square" then
+        element.Filled = config.filled or true
+        element.Thickness = config.thickness or 1
+    end
+    
+    -- Propriedades comuns
+    element.Visible = config.visible or false
+    element.Color = config.color or self.DefaultConfig.theme.text
+    element.Transparency = config.transparency or self.DefaultConfig.transparency
+    
+    return element
 end
 
 -- Criar um Slider
