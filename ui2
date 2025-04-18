@@ -345,6 +345,392 @@ function SevereUI:IsInDeadZone(x, y)
         and x <= self.DeadZone[3] and y <= self.DeadZone[4]
 end
 
--- Métodos restantes (Show, Hide, Destroy, etc.) mantidos com ajustes visuais
+--[[ MÉTODOS DE CONTROLE VISUAL ]]--
+
+function SevereUI:Show()
+    self.visible = true
+    -- Animar elementos principais
+    self.frame.Transparency = self.config.transparency
+    for _, shadow in ipairs(self.depthEffects) do
+        shadow.Transparency = self.config.shadowIntensity
+    end
+    
+    -- Mostrar elementos da barra de título
+    for _, element in ipairs(self.titleBar) do
+        element.Transparency = self.config.transparency
+    end
+    self.titleText.Transparency = 1
+    self.titleUnderline.Transparency = 1
+    
+    -- Mostrar elementos filhos
+    self:UpdateElementsVisibility(true)
+end
+
+function SevereUI:Hide()
+    self.visible = false
+    -- Esconder todos os elementos gradualmente
+    self.frame.Transparency = 0
+    for _, shadow in ipairs(self.depthEffects) do
+        shadow.Transparency = 0
+    end
+    
+    -- Esconder elementos da barra de título
+    for _, element in ipairs(self.titleBar) do
+        element.Transparency = 0
+    end
+    self.titleText.Transparency = 0
+    self.titleUnderline.Transparency = 0
+    
+    -- Esconder elementos filhos
+    self:UpdateElementsVisibility(false)
+end
+
+function SevereUI:UpdateElementsVisibility(state)
+    -- Atualizar tabs
+    for _, tab in ipairs(self.tabs) do
+        tab.button.Visible = state
+        tab.buttonText.Visible = state
+        tab.container.Visible = state and (tab == self.currentTab)
+    end
+    
+    -- Atualizar elementos principais
+    for _, element in ipairs(self.elements) do
+        if element.SetVisible then
+            element:SetVisible(state)
+        else
+            element.Visible = state
+        end
+    end
+end
+
+function SevereUI:Destroy()
+    -- Remover da lista de janelas
+    for i, win in ipairs(SevereUI.Windows) do
+        if win == self then
+            table.remove(SevereUI.Windows, i)
+            break
+        end
+    end
+
+    -- Destruir elementos gráficos
+    self.frame:Remove()
+    for _, shadow in ipairs(self.depthEffects) do
+        shadow:Remove()
+    end
+    
+    -- Destruir barra de título
+    for _, element in ipairs(self.titleBar) do
+        element:Remove()
+    end
+    self.titleText:Remove()
+    self.titleUnderline:Remove()
+    
+    -- Destruir elementos filhos
+    self:DestroyAllElements()
+end
+
+function SevereUI:DestroyAllElements()
+    -- Destruir tabs
+    for _, tab in ipairs(self.tabs) do
+        tab.button:Remove()
+        tab.buttonText:Remove()
+        tab.container:Remove()
+        for _, element in ipairs(tab.elements) do
+            element:Destroy()
+        end
+    end
+    
+    -- Destruir elementos principais
+    for _, element in ipairs(self.elements) do
+        element:Destroy()
+    end
+end
+
+--[[ MÉTODOS DE INTERAÇÃO ]]--
+
+function SevereUI:SetupDraggable()
+    spawn(function()
+        while true do
+            if not self.visible then
+                wait(0.1)
+                continue
+            end
+            
+            local mousePos = getmouseposition()
+            local titleBarArea = {
+                self.config.position[1],
+                self.config.position[2],
+                self.config.position[1] + self.config.size[1],
+                self.config.position[2] + 25
+            }
+            
+            if self:MouseInArea(titleBarArea) and isleftpressed() then
+                self.dragging = true
+                self.dragOffset = {
+                    mousePos.x - self.frame.Position.x,
+                    mousePos.y - self.frame.Position.y
+                }
+                
+                -- Trazer para frente
+                self:ManageZOrder()
+            end
+            
+            if self.dragging then
+                if not isleftpressed() then
+                    self.dragging = false
+                else
+                    local newX = mousePos.x - self.dragOffset[1]
+                    local newY = mousePos.y - self.dragOffset[2]
+                    self:SetPosition({newX, newY})
+                end
+            end
+            
+            wait(0.01)
+        end
+    end)
+end
+
+function SevereUI:ManageZOrder()
+    local index = table.find(SevereUI.Windows, self)
+    if index then
+        table.remove(SevereUI.Windows, index)
+    end
+    table.insert(SevereUI.Windows, self)
+    self:UpdateDeadZones()
+end
+
+function SevereUI:SetPosition(newPos)
+    -- Atualizar posição principal
+    local offsetX = newPos[1] - self.frame.Position.x
+    local offsetY = newPos[2] - self.frame.Position.y
+    self.frame.Position = newPos
+    
+    -- Atualizar sombras
+    for i, shadow in ipairs(self.depthEffects) do
+        shadow.Position = {
+            newPos[1] + i,
+            newPos[2] + i
+        }
+    end
+    
+    -- Atualizar elementos filhos
+    self:UpdateChildrenPosition(offsetX, offsetY)
+end
+
+function SevereUI:UpdateChildrenPosition(offsetX, offsetY)
+    -- Barra de título
+    for _, element in ipairs(self.titleBar) do
+        element.Position = {
+            element.Position.x + offsetX,
+            element.Position.y + offsetY
+        }
+    end
+    
+    -- Títulos e elementos
+    self.titleText.Position = {
+        self.titleText.Position.x + offsetX,
+        self.titleText.Position.y + offsetY
+    }
+    self.titleUnderline.Position = {
+        self.titleUnderline.Position.x + offsetX,
+        self.titleUnderline.Position.y + offsetY
+    }
+    
+    -- Tabs container
+    self.tabsContainer.Position = {
+        self.tabsContainer.Position.x + offsetX,
+        self.tabsContainer.Position.y + offsetY
+    }
+    
+    -- Elementos filhos
+    for _, element in ipairs(self.elements) do
+        if element.UpdatePosition then
+            element:UpdatePosition(offsetX, offsetY)
+        end
+    end
+end
+
+--[[ MÉTODOS PARA ELEMENTOS FILHOS ]]--
+
+function SevereUI.Element:SetVisible(state)
+    self.Visible = state
+    if self.background then self.background.Visible = state end
+    if self.text then self.text.Visible = state end
+    if self.effect then self.effect.Visible = state end
+end
+
+function SevereUI.Element:Destroy()
+    if self.background then self.background:Remove() end
+    if self.text then self.text:Remove() end
+    if self.effect then self.effect:Remove() end
+end
+
+function SevereUI.Element:UpdatePosition(offsetX, offsetY)
+    if self.background then
+        self.background.Position = {
+            self.background.Position.x + offsetX,
+            self.background.Position.y + offsetY
+        }
+    end
+    if self.text then
+        self.text.Position = {
+            self.text.Position.x + offsetX,
+            self.text.Position.y + offsetY
+        }
+    end
+end
+
+--[[ MÉTODOS PARA TABS ]]--
+
+function SevereUI.Tab:AddButton(options)
+    local btn = self.parent:CreateButton({
+        text = options.text,
+        position = options.position,
+        size = options.size,
+        callback = options.callback
+    })
+    btn.parent = self
+    table.insert(self.elements, btn)
+    return btn
+end
+
+function SevereUI.Tab:AddSlider(options)
+    local slider = self.parent:CreateSlider({
+        text = options.text,
+        min = options.min,
+        max = options.max,
+        position = options.position,
+        size = options.size
+    })
+    slider.parent = self
+    table.insert(self.elements, slider)
+    return slider
+end
+
+function SevereUI.Tab:AddDropdown(options)
+    local dropdown = self.parent:CreateDropdown({
+        text = options.text,
+        options = options.options,
+        position = options.position,
+        size = options.size
+    })
+    dropdown.parent = self
+    table.insert(self.elements, dropdown)
+    return dropdown
+end
+
+--[[ SISTEMA DE NOTIFICAÇÕES ]]--
+
+function SevereUI.Notify(text, duration)
+    local notification = {
+        lines = {},
+        startTime = os.clock(),
+        duration = duration or 5,
+        elements = {
+            bg = Drawing.new("Square"),
+            texts = {}
+        }
+    }
+    
+    -- Configurar fundo
+    notification.elements.bg.Color = SevereUI.DefaultConfig.theme.dark
+    notification.elements.bg.Filled = true
+    notification.elements.bg.Transparency = 0.9
+    
+    -- Quebrar texto em linhas
+    for line in text:gmatch("[^\n]+") do
+        local textObj = Drawing.new("Text")
+        textObj.Text = line
+        textObj.Color = SevereUI.DefaultConfig.theme.text
+        textObj.Size = SevereUI.DefaultConfig.textSize
+        table.insert(notification.elements.texts, textObj)
+    end
+    
+    table.insert(SevereUI.Notifications, notification)
+end
+
+--[[ LOOP PRINCIPAL ]]--
+
+function SevereUI.Init()
+    spawn(function()
+        while true do
+            SevereUI.UpdateMouseState()
+            SevereUI.UpdateDeadZones()
+            SevereUI.RenderAll()
+            wait(0.016) -- ~60 FPS
+        end
+    end)
+end
+
+function SevereUI.UpdateMouseState()
+    SevereUI.Mouse = {
+        isLeftPressed = isleftpressed(),
+        position = getmouseposition()
+    }
+end
+
+function SevereUI.RenderAll()
+    -- Renderizar janelas
+    for _, window in ipairs(SevereUI.Windows) do
+        if window.visible then
+            -- Atualizar animações
+            for _, element in ipairs(window.elements) do
+                if element.Update then element:Update() end
+            end
+            
+            -- Renderizar elementos
+            window:Render()
+        end
+    end
+    
+    -- Renderizar notificações
+    SevereUI.RenderNotifications()
+    
+    -- Renderizar tooltips
+    SevereUI.RenderTooltips()
+end
+
+function SevereUI.RenderTooltips()
+    for _, window in ipairs(SevereUI.Windows) do
+        if window.visible then
+            for _, element in ipairs(window.elements) do
+                if element.tooltip and element:IsMouseOver() then
+                    SevereUI.DrawTooltip(element)
+                end
+            end
+        end
+    end
+end
+
+function SevereUI.DrawTooltip(element)
+    local mousePos = getmouseposition()
+    local padding = 5
+    local maxWidth = 0
+    
+    -- Calcular tamanho
+    for _, line in ipairs(element.tooltip.lines) do
+        maxWidth = math.max(maxWidth, Drawing.CalcTextWidth(line))
+    end
+    
+    -- Fundo do tooltip
+    element.tooltip.bg.Position = {
+        mousePos.x + 15,
+        mousePos.y + 15
+    }
+    element.tooltip.bg.Size = {
+        maxWidth + padding * 2,
+        #element.tooltip.lines * (SevereUI.DefaultConfig.textSize + 2) + padding * 2
+    }
+    element.tooltip.bg.Visible = true
+    
+    -- Texto do tooltip
+    for i, text in ipairs(element.tooltip.texts) do
+        text.Position = {
+            mousePos.x + 15 + padding,
+            mousePos.y + 15 + padding + (i-1)*(SevereUI.DefaultConfig.textSize + 2)
+        }
+        text.Visible = true
+    end
+end
 
 return SevereUI
