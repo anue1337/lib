@@ -1,1198 +1,1355 @@
---[[
- SevereUI - Interface Gráfica para Roblox Lua
- Versão 1.0.0
- 
- Biblioteca unificada para criação de interfaces gráficas.
- Todos os métodos seguem o padrão PascalCase conforme documentação.
-]]
+local SevereUI = {}
+SevereUI.__index = SevereUI
 
--- Inicialização da biblioteca global
-if _G.SevereUI == nil then
-    _G.SevereUI = { 
-        -- Cores padrão
-        FontColor = { 255, 255, 255 },
-        MainColor = { 25, 25, 25 },
-        BackgroundColor = { 20, 20, 20 },
-        AccentColor = { 255, 50, 255 },
-        OutlineColor = { 40, 40, 40 },
-        Colors = {
-            Font = { 255, 255, 255 },
-            Main = { 25, 25, 25 },
-            Background = { 20, 20, 20 },
-            Accent = { 255, 50, 255 },
-            Outline = { 40, 40, 40 }
-        },
-        
-        -- Sistema de gerenciamento
-        Windows = {},
-        ActiveWindow = nil,
-        DraggingWindow = nil,
-        
-        -- Estado do mouse
-        Mouse = {
-            Position = {0, 0},
-            LeftClicked = false,
-            RightPressed = false,
-            RightClicked = false,
-            LeftPressed = false
-        },
-        
-        -- Funções de referência
-        GetKey = GetKey,
-        DrawFilledBox = DrawFilledBox,
-        DrawString = DrawString,
-        CalcTextWidth = CalcTextWidth
-    }
-end
+-- Configurações padrão
+SevereUI.DefaultConfig = {
+    title = "SevereUI Window",
+    position = {20, 20},
+    size = {300, 350},
+    theme = {
+        background = {40, 40, 40},
+        foreground = {50, 50, 50},
+        accent = {245, 245, 245},
+        text = {255, 255, 255},
+        border = {215, 215, 215},
+        highlight = {70, 70, 70}
+    },
+    transparency = 1,
+    draggable = true,
+    font = 4,
+    textSize = 15
+}
 
-local SevereUI = _G.SevereUI
+-- Armazenar todas as instâncias de janelas criadas
+SevereUI.Windows = {}
 
--- Utilitários
-function SevereUI.MouseInArea(area)
-    local mouse = SevereUI.Mouse.Position
-    return mouse[1] > area[1] and mouse[2] > area[2] 
-       and mouse[1] < area[3] and mouse[2] < area[4]
-end
-
--- =================================================
--- Sistema de janelas
--- =================================================
-
-function SevereUI.CreateWindow(params)
-    local window = {
-        Name = params.Name or "Window",
-        Position = params.Position or {100, 100},
-        Size = params.Size or {600, 400},
-        Tabs = {},
-        CurrentTab = nil,
-        TabMargin = 0,
-        Dragging = false,
-        DragOffset = {0, 0}
-    }
+-- Criar uma nova janela
+function SevereUI.new(config)
+    local window = {}
+    setmetatable(window, SevereUI)
     
-    -- Converter posição e tamanho para formato moderno
-    window.Position = {
-        X = window.Position[1],
-        Y = window.Position[2]
-    }
-    
-    window.Size = {
-        Width = window.Size[1],
-        Height = window.Size[2]
-    }
-    
-    -- Método para atualizar restrições
-    function window:UpdateRestraints(settings)
-        if settings.Width then
-            self.Size.Width = math.max(self.Size.Width, settings.Width)
-        end
+    -- Mesclar configuração padrão com configuração fornecida
+    window.config = {}
+    for k, v in pairs(SevereUI.DefaultConfig) do
+        window.config[k] = (config and config[k] ~= nil) and config[k] or v
     end
     
-    -- Renderização da janela
-    function window:Render()
-        -- Fundo principal
-        SevereUI.DrawFilledBox(
-            {self.Position.X, self.Position.Y},
-            {self.Position.X + self.Size.Width, self.Position.Y + self.Size.Height},
-            SevereUI.MainColor
-        )
-        
-        -- Barra de título
-        SevereUI.DrawFilledBox(
-            {self.Position.X, self.Position.Y},
-            {self.Position.X + self.Size.Width, self.Position.Y + 30},
-            SevereUI.AccentColor
-        )
-        
-        -- Título
-        SevereUI.DrawString(
-            {self.Position.X + 10, self.Position.Y + 5},
-            SevereUI.FontColor,
-            self.Name
-        )
-        
-        -- Área de arrastar
-        local titleBarArea = {
-            self.Position.X, self.Position.Y,
-            self.Position.X + self.Size.Width, self.Position.Y + 30
-        }
-        
-        -- Verificar cliques na barra de título para arrastar
-        if SevereUI.MouseInArea(titleBarArea) and SevereUI.Mouse.LeftClicked then
-            self.Dragging = true
-            self.DragOffset = {
-                SevereUI.Mouse.Position[1] - self.Position.X,
-                SevereUI.Mouse.Position[2] - self.Position.Y
-            }
-            SevereUI.DraggingWindow = self
-        end
-        
-        -- Atualizar posição se estiver arrastando
-        if self.Dragging and SevereUI.Mouse.LeftPressed then
-            self.Position.X = SevereUI.Mouse.Position[1] - self.DragOffset[1]
-            self.Position.Y = SevereUI.Mouse.Position[2] - self.DragOffset[2]
-        elseif not SevereUI.Mouse.LeftPressed then
-            self.Dragging = false
-            if SevereUI.DraggingWindow == self then
-                SevereUI.DraggingWindow = nil
-            end
-        end
-        
-        -- Renderizar abas e conteúdo
-        if #self.Tabs > 0 then
-            for _, tab in ipairs(self.Tabs) do
-                tab:Render()
-            end
-            
-            -- Renderizar conteúdo da aba atual
-            if self.CurrentTab then
-                -- Fundo da área de conteúdo
-                SevereUI.DrawFilledBox(
-                    {self.Position.X + 5, self.Position.Y + 55},
-                    {self.Position.X + self.Size.Width - 5, self.Position.Y + self.Size.Height - 5},
-                    SevereUI.BackgroundColor
-                )
-                
-                -- Renderizar as caixas de grupo da aba atual
-                for position, groupBoxes in pairs(self.CurrentTab.GroupBoxes) do
-                    for _, groupBox in ipairs(groupBoxes) do
-                        groupBox:Render()
-                    end
-                end
-            end
-        end
-    end
+    -- Propriedades da janela
+    window.visible = true
+    window.elements = {}
+    window.tabs = {}
+    window.currentTab = nil
+    window.dragging = false
+    window.dragOffset = {0, 0}
+    
+    -- Inicializar a janela
+    window:Initialize()
     
     -- Adicionar à lista de janelas
     table.insert(SevereUI.Windows, window)
-    SevereUI.ActiveWindow = window
     
     return window
 end
 
--- =================================================
--- Sistema de abas
--- =================================================
-
-function Window:AddTab(TabName)
-    local Tab = {
-        Name = TabName,
-        Window = self,
-        GroupBoxes = {Left = {}, Right = {}, Middle = {}},
-        Active = false,
-        LeftStack = 0,
-        RightStack = 0
+-- Inicializar a janela
+function SevereUI:Initialize()
+    local screenDimensions = getscreendimensions()
+    
+    -- Criar o frame principal (borda externa)
+    self.frame = Drawing.new("Square")
+    self.frame.Filled = true
+    self.frame.Visible = self.visible
+    self.frame.Size = self.config.size
+    self.frame.Position = self.config.position
+    self.frame.Color = self.config.theme.border
+    self.frame.Transparency = self.config.transparency
+    
+    -- Criar o frame secundário (fundo)
+    self.innerFrame = Drawing.new("Square")
+    self.innerFrame.Filled = true
+    self.innerFrame.Visible = self.visible
+    self.innerFrame.Size = {self.frame.Size.x - 2, self.frame.Size.y - 2}
+    self.innerFrame.Position = {self.frame.Position.x + 1, self.frame.Position.y + 1}
+    self.innerFrame.Color = self.config.theme.background
+    self.innerFrame.Transparency = self.config.transparency
+    
+    -- Criar a barra de título
+    self.titleBar = Drawing.new("Square")
+    self.titleBar.Filled = true
+    self.titleBar.Visible = self.visible
+    self.titleBar.Size = {self.innerFrame.Size.x, 25}
+    self.titleBar.Position = {self.innerFrame.Position.x, self.innerFrame.Position.y}
+    self.titleBar.Color = self.config.theme.foreground
+    self.titleBar.Transparency = self.config.transparency
+    
+    -- Criar o texto do título
+    self.titleText = Drawing.new("Text")
+    self.titleText.Text = self.config.title
+    self.titleText.Visible = self.visible
+    self.titleText.Center = false
+    self.titleText.Position = {self.titleBar.Position.x + 10, self.titleBar.Position.y + 5}
+    self.titleText.Color = self.config.theme.text
+    self.titleText.Size = self.config.textSize
+    self.titleText.Font = self.config.font
+    self.titleText.Transparency = self.config.transparency
+    
+    -- Criar o contêiner do conteúdo
+    self.contentContainer = Drawing.new("Square")
+    self.contentContainer.Filled = true
+    self.contentContainer.Visible = self.visible
+    self.contentContainer.Size = {
+        self.innerFrame.Size.x, 
+        self.innerFrame.Size.y - self.titleBar.Size.y
     }
-
-    -- Calcular largura da tab
-    local TabWidth = SevereUI.CalcTextWidth(TabName) + 24
+    self.contentContainer.Position = {
+        self.innerFrame.Position.x,
+        self.innerFrame.Position.y + self.titleBar.Size.y
+    }
+    self.contentContainer.Color = self.config.theme.background
+    self.contentContainer.Transparency = self.config.transparency
     
-    -- Atualizar restrições da janela
-    self.TabMargin = self.TabMargin + TabWidth
-    self:UpdateRestraints({Width = self.TabMargin})
-
-    -- Renderização da Tab
-    function Tab:Render()
-        local isActive = (self == self.Window.CurrentTab)
-        local tabPosX = self.Window.Position.X + self.Window.TabMargin - TabWidth
-        
-        -- Desenhar fundo
-        SevereUI.DrawFilledBox(
-            {tabPosX, self.Window.Position.Y + 25},
-            {tabPosX + TabWidth, self.Window.Position.Y + 50},
-            isActive and SevereUI.Colors.Accent or SevereUI.Colors.Background
-        )
-
-        -- Desenhar texto
-        SevereUI.DrawString(
-            {tabPosX + 12, self.Window.Position.Y + 28},
-            SevereUI.Colors.Font,
-            self.Name
-        )
-
-        -- Atualizar boundary para interação
-        self.Boundary = {
-            tabPosX, self.Window.Position.Y + 25,
-            tabPosX + TabWidth, self.Window.Position.Y + 50
-        }
-        
-        -- Verificar cliques na aba
-        if SevereUI.MouseInArea(self.Boundary) and SevereUI.Mouse.LeftClicked then
-            self.Window.CurrentTab = self
-            -- Resetar as stacks quando mudar de aba
-            self.LeftStack = 0
-            self.RightStack = 0
-        end
+    -- Configurar funcionalidade de arrastar se habilitada
+    if self.config.draggable then
+        self:SetupDraggable()
     end
-
-    -- Preparar propriedades
-    Tab.Active = (#self.Tabs == 0)
-    if Tab.Active then
-        self.CurrentTab = Tab
-    end
-    
-    table.insert(self.Tabs, Tab)
-    return Tab
 end
 
--- =================================================
--- Sistema de GroupBox
--- =================================================
-
-function Tab:AddGroupBox(GroupBoxName, Position)
-    assert(type(GroupBoxName) == "string", "GroupBox name must be a string")
-    
-    local GroupBox = {
-        Name = GroupBoxName,
-        Tab = self,
-        Position = Position or "Left",
-        Elements = {},
-        Size = {Width = 250, Height = 50},
-        ContentY = 30, -- Espaço para o título
-        Visible = true
-    }
-
-    -- Configurar posicionamento
-    function GroupBox:CalculatePosition()
-        local baseX = self.Tab.Window.Position.X + 20
-        local baseY = self.Tab.Window.Position.Y + 60
-        
-        if self.Position == "Left" then
-            return baseX, baseY + self.Tab.LeftStack
-        elseif self.Position == "Right" then
-            return baseX + self.Tab.Window.Size.Width/2 - 20, baseY + self.Tab.RightStack
-        else -- Middle
-            return baseX + (self.Tab.Window.Size.Width/4), baseY + math.max(self.Tab.LeftStack, self.Tab.RightStack)
-        end
-    end
-
-    -- Renderização da GroupBox
-    function GroupBox:Render()
-        if not self.Visible then return end
-        
-        local posX, posY = self:CalculatePosition()
-        
-        -- Atualizar posição para referência
-        self.Position = {
-            X = posX,
-            Y = posY
-        }
-        
-        -- Desenhar container
-        SevereUI.DrawFilledBox(
-            {posX, posY},
-            {posX + self.Size.Width, posY + self.Size.Height},
-            SevereUI.Colors.Background
-        )
-        
-        -- Desenhar borda
-        local outlineColor = SevereUI.OutlineColor
-        -- Desenhar linhas de borda (top, right, bottom, left)
-        SevereUI.DrawFilledBox(
-            {posX, posY}, 
-            {posX + self.Size.Width, posY + 1}, 
-            outlineColor
-        )
-        SevereUI.DrawFilledBox(
-            {posX + self.Size.Width - 1, posY}, 
-            {posX + self.Size.Width, posY + self.Size.Height}, 
-            outlineColor
-        )
-        SevereUI.DrawFilledBox(
-            {posX, posY + self.Size.Height - 1}, 
-            {posX + self.Size.Width, posY + self.Size.Height}, 
-            outlineColor
-        )
-        SevereUI.DrawFilledBox(
-            {posX, posY}, 
-            {posX + 1, posY + self.Size.Height}, 
-            outlineColor
-        )
-
-        -- Desenhar título
-        SevereUI.DrawString(
-            {posX + 10, posY + 5},
-            SevereUI.Colors.Font,
-            self.Name
-        )
-
-        -- Renderizar elementos
-        for _, element in ipairs(self.Elements) do
-            if element.Render then
-                element:Render(posX + 10, posY + element.Offset)
+-- Configurar funcionalidade de arrastar
+function SevereUI:SetupDraggable()
+    spawn(function()
+        while true do
+            if not self.visible then
+                wait(0.1)
+                continue
             end
-        end
-        
-        -- Atualizar stacks
-        if self.Position == "Left" then
-            self.Tab.LeftStack = self.Tab.LeftStack + self.Size.Height + 10
-        elseif self.Position == "Right" then
-            self.Tab.RightStack = self.Tab.RightStack + self.Size.Height + 10
-        else -- Middle
-            self.Tab.LeftStack = self.Tab.LeftStack + self.Size.Height + 10
-            self.Tab.RightStack = self.Tab.RightStack + self.Size.Height + 10
-        end
-    end
-
-    -- Adicionar o GroupBox à lista correta
-    table.insert(self.GroupBoxes[GroupBox.Position], GroupBox)
-    return GroupBox
-end
-
--- =================================================
--- Componente Button
--- =================================================
-
-function GroupBox:AddButton(params)
-    local Button = {
-        Name = params.Name or "Button",
-        Offset = self.ContentY,
-        Size = {Width = self.Size.Width - 20, Height = 25},
-        Callback = params.Callback or function() end,
-        State = {Hovering = false, Pressed = false}
-    }
-
-    -- Incrementar ContentY para próximo elemento
-    self.ContentY = self.ContentY + Button.Size.Height + 5
-    self.Size.Height = self.Size.Height + Button.Size.Height + 5
-
-    function Button:Render(x, y)
-        -- Obter posição do mouse
-        local mouseX, mouseY = unpack(SevereUI.Mouse.Position)
-        
-        -- Verificar se o mouse está sobre o botão
-        self.State.Hovering = (
-            mouseX >= x and 
-            mouseX <= x + self.Size.Width and
-            mouseY >= y + self.Offset and 
-            mouseY <= y + self.Offset + self.Size.Height
-        )
-
-        -- Verificar estado do botão
-        if self.State.Hovering then
-            if SevereUI.Mouse.LeftClicked then
-                self.State.Pressed = true
-            elseif SevereUI.Mouse.LeftPressed == false and self.State.Pressed then
-                self.State.Pressed = false
-                self.Callback()
-            end
-        elseif SevereUI.Mouse.LeftPressed == false then
-            self.State.Pressed = false
-        end
-
-        -- Renderização do botão
-        local bgColor = self.State.Hovering and SevereUI.AccentColor or SevereUI.MainColor
-        
-        -- Desenhar fundo do botão
-        SevereUI.DrawFilledBox(
-            {x, y + self.Offset},
-            {x + self.Size.Width, y + self.Offset + self.Size.Height},
-            bgColor
-        )
-        
-        -- Desenhar texto centralizado
-        local textWidth = SevereUI.CalcTextWidth(self.Name)
-        local textX = x + (self.Size.Width - textWidth) / 2
-        local textY = y + self.Offset + (self.Size.Height - 14) / 2
-        
-        SevereUI.DrawString(
-            {textX, textY},
-            SevereUI.FontColor,
-            self.Name
-        )
-    end
-    
-    table.insert(self.Elements, Button)
-    return Button
-end
-
--- =================================================
--- Componente Slider
--- =================================================
-
-function GroupBox:AddSlider(params)
-    local Slider = {
-        Name = params.Name or "Slider",
-        Offset = self.ContentY,
-        Size = {Width = self.Size.Width - 20, Height = 35},
-        Min = params.Min or 0,
-        Max = params.Max or 100,
-        Value = params.Default or params.Min or 0,
-        OnChanged = params.OnChanged,
-        Dragging = false
-    }
-
-    -- Incrementar ContentY para próximo elemento
-    self.ContentY = self.ContentY + Slider.Size.Height + 5
-    self.Size.Height = self.Size.Height + Slider.Size.Height + 5
-
-    function Slider:Render(x, y)
-        -- Eixo do slider
-        local sliderX = x
-        local sliderY = y + self.Offset + 20
-        local sliderWidth = self.Size.Width
-        local sliderHeight = 5
-        
-        -- Desenhar barra de fundo
-        SevereUI.DrawFilledBox(
-            {sliderX, sliderY},
-            {sliderX + sliderWidth, sliderY + sliderHeight},
-            SevereUI.MainColor
-        )
-        
-        -- Calcular posição do ponto
-        local percentage = (self.Value - self.Min) / (self.Max - self.Min)
-        local pointX = sliderX + (sliderWidth * percentage)
-        
-        -- Desenhar barra preenchida
-        SevereUI.DrawFilledBox(
-            {sliderX, sliderY},
-            {pointX, sliderY + sliderHeight},
-            SevereUI.AccentColor
-        )
-        
-        -- Desenhar ponto
-        local pointSize = 10
-        SevereUI.DrawFilledBox(
-            {pointX - pointSize/2, sliderY - pointSize/2 + sliderHeight/2},
-            {pointX + pointSize/2, sliderY + pointSize/2 + sliderHeight/2},
-            SevereUI.Colors.Font
-        )
-        
-        -- Desenhar nome e valor
-        SevereUI.DrawString(
-            {sliderX, y + self.Offset},
-            SevereUI.FontColor,
-            self.Name
-        )
-        
-        local valueStr = string.format("%.1f", self.Value)
-        local valueWidth = SevereUI.CalcTextWidth(valueStr)
-        
-        SevereUI.DrawString(
-            {sliderX + sliderWidth - valueWidth, y + self.Offset},
-            SevereUI.FontColor,
-            valueStr
-        )
-        
-        -- Verificar interação
-        local mouseX, mouseY = unpack(SevereUI.Mouse.Position)
-        local hitArea = {
-            sliderX - pointSize, sliderY - pointSize,
-            sliderX + sliderWidth + pointSize, sliderY + pointSize + sliderHeight
-        }
-        
-        if SevereUI.MouseInArea(hitArea) then
-            if SevereUI.Mouse.LeftClicked then
-                self.Dragging = true
-            end
-        end
-        
-        if SevereUI.Mouse.LeftPressed == false then
-            self.Dragging = false
-        end
-        
-        if self.Dragging then
-            -- Calcular novo valor baseado na posição do mouse
-            local newPercentage = math.clamp((mouseX - sliderX) / sliderWidth, 0, 1)
-            local newValue = self.Min + newPercentage * (self.Max - self.Min)
             
-            -- Atualizar valor e chamar callback
-            if self.Value ~= newValue then
-                self.Value = newValue
-                if self.OnChanged then
-                    self.OnChanged(self.Value)
-                end
+            local mousePos = getmouseposition()
+            
+            -- Verificar se o mouse está sobre a barra de título
+            local overTitleBar = (
+                mousePos.x >= self.titleBar.Position.x and
+                mousePos.x <= self.titleBar.Position.x + self.titleBar.Size.x and
+                mousePos.y >= self.titleBar.Position.y and
+                mousePos.y <= self.titleBar.Position.y + self.titleBar.Size.y
+            )
+            
+            -- Iniciar arrasto
+            if overTitleBar and isleftpressed() and not self.dragging then
+                self.dragging = true
+                self.dragOffset = {
+                    mousePos.x - self.frame.Position.x,
+                    mousePos.y - self.frame.Position.y
+                }
             end
+            
+            -- Terminar arrasto
+            if not isleftpressed() and self.dragging then
+                self.dragging = false
+            end
+            
+            -- Atualizar posição durante arrasto
+            if self.dragging then
+                local newX = mousePos.x - self.dragOffset[1]
+                local newY = mousePos.y - self.dragOffset[2]
+                
+                -- Mover todos os elementos
+                self:SetPosition({newX, newY})
+            end
+            
+            wait(0.01)
+        end
+    end)
+end
+
+-- Definir a posição da janela
+function SevereUI:SetPosition(position)
+    local offsetX = position[1] - self.frame.Position.x
+    local offsetY = position[2] - self.frame.Position.y
+    
+    -- Atualizar posição do frame principal
+    self.frame.Position = position
+    
+    -- Atualizar posições de todos os outros elementos
+    self.innerFrame.Position = {self.frame.Position.x + 1, self.frame.Position.y + 1}
+    self.titleBar.Position = {self.innerFrame.Position.x, self.innerFrame.Position.y}
+    self.titleText.Position = {self.titleBar.Position.x + 10, self.titleBar.Position.y + 5}
+    self.contentContainer.Position = {
+        self.innerFrame.Position.x,
+        self.innerFrame.Position.y + self.titleBar.Size.y
+    }
+    
+    -- Atualizar posições de todos os elementos filhos
+    self:UpdateElementPositions(offsetX, offsetY)
+end
+
+-- Atualizar posições de elementos filho quando a janela se move
+function SevereUI:UpdateElementPositions(offsetX, offsetY)
+    -- Atualizar todos os elementos filhos
+    for _, element in pairs(self.elements) do
+        if element.type == "button" then
+            element.background.Position = {
+                element.background.Position.x + offsetX,
+                element.background.Position.y + offsetY
+            }
+            element.label.Position = {
+                element.label.Position.x + offsetX,
+                element.label.Position.y + offsetY
+            }
+        elseif element.type == "toggle" then
+            element.background.Position = {
+                element.background.Position.x + offsetX,
+                element.background.Position.y + offsetY
+            }
+            element.label.Position = {
+                element.label.Position.x + offsetX,
+                element.label.Position.y + offsetY
+            }
+        elseif element.type == "slider" then
+            element.background.Position = {
+                element.background.Position.x + offsetX,
+                element.background.Position.y + offsetY
+            }
+            element.label.Position = {
+                element.label.Position.x + offsetX,
+                element.label.Position.y + offsetY
+            }
+            element.handle.Position = {
+                element.handle.Position.x + offsetX,
+                element.handle.Position.y + offsetY
+            }
+            element.fill.Position = {
+                element.fill.Position.x + offsetX,
+                element.fill.Position.y + offsetY
+            }
+        elseif element.type == "dropdown" then
+            element.header.Position = {
+                element.header.Position.x + offsetX,
+                element.header.Position.y + offsetY
+            }
+            element.label.Position = {
+                element.label.Position.x + offsetX,
+                element.label.Position.y + offsetY
+            }
+            element.valueText.Position = {
+                element.valueText.Position.x + offsetX,
+                element.valueText.Position.y + offsetY
+            }
+            element.arrow.Position = {
+                element.arrow.Position.x + offsetX,
+                element.arrow.Position.y + offsetY
+            }
+            element.optionsContainer.Position = {
+                element.optionsContainer.Position.x + offsetX,
+                element.optionsContainer.Position.y + offsetY
+            }
+            for _, option in ipairs(element.optionElements) do
+                option.background.Position = {
+                    option.background.Position.x + offsetX,
+                    option.background.Position.y + offsetY
+                }
+                option.text.Position = {
+                    option.text.Position.x + offsetX,
+                    option.text.Position.y + offsetY
+                }
+            end
+        elseif element.type == "label" then
+            element.textObject.Position = {
+                element.textObject.Position.x + offsetX,
+                element.textObject.Position.y + offsetY
+            }
         end
     end
     
-    table.insert(self.Elements, Slider)
-    return Slider
-end
-
--- =================================================
--- Componente Toggle
--- =================================================
-
-function GroupBox:AddToggle(params)
-    local Toggle = {
-        Name = params.Name or "Toggle",
-        Offset = self.ContentY,
-        Size = {Width = self.Size.Width - 20, Height = 25},
-        Value = params.Default or false,
-        OnChanged = params.OnChanged
-    }
-
-    -- Incrementar ContentY para próximo elemento
-    self.ContentY = self.ContentY + Toggle.Size.Height + 5
-    self.Size.Height = self.Size.Height + Toggle.Size.Height + 5
-
-    function Toggle:Render(x, y)
-        -- Dimensões do toggle
-        local toggleSize = 16
-        local toggleX = x + self.Size.Width - toggleSize - 5
-        local toggleY = y + self.Offset + (self.Size.Height - toggleSize) / 2
-        
-        -- Verificar clique
-        local mouseX, mouseY = unpack(SevereUI.Mouse.Position)
-        local hitArea = {
-            x, y + self.Offset,
-            x + self.Size.Width, y + self.Offset + self.Size.Height
+    -- Atualizar abas
+    for _, tab in pairs(self.tabs) do
+        tab.button.Position = {
+            tab.button.Position.x + offsetX,
+            tab.button.Position.y + offsetY
+        }
+        tab.buttonText.Position = {
+            tab.buttonText.Position.x + offsetX,
+            tab.buttonText.Position.y + offsetY
+        }
+        tab.container.Position = {
+            tab.container.Position.x + offsetX,
+            tab.container.Position.y + offsetY
         }
         
-        if SevereUI.MouseInArea(hitArea) and SevereUI.Mouse.LeftClicked then
-            self.Value = not self.Value
-            if self.OnChanged then
-                self.OnChanged(self.Value)
+        -- Atualizar elementos da aba
+        for _, element in pairs(tab.elements) do
+            if element.type == "button" then
+                element.background.Position = {
+                    element.background.Position.x + offsetX,
+                    element.background.Position.y + offsetY
+                }
+                element.label.Position = {
+                    element.label.Position.x + offsetX,
+                    element.label.Position.y + offsetY
+                }
+            elseif element.type == "toggle" then
+                element.background.Position = {
+                    element.background.Position.x + offsetX,
+                    element.background.Position.y + offsetY
+                }
+                element.label.Position = {
+                    element.label.Position.x + offsetX,
+                    element.label.Position.y + offsetY
+                }
+            elseif element.type == "slider" then
+                element.background.Position = {
+                    element.background.Position.x + offsetX,
+                    element.background.Position.y + offsetY
+                }
+                element.label.Position = {
+                    element.label.Position.x + offsetX,
+                    element.label.Position.y + offsetY
+                }
+                element.handle.Position = {
+                    element.handle.Position.x + offsetX,
+                    element.handle.Position.y + offsetY
+                }
+                element.fill.Position = {
+                    element.fill.Position.x + offsetX,
+                    element.fill.Position.y + offsetY
+                }
+            elseif element.type == "dropdown" then
+                element.header.Position = {
+                    element.header.Position.x + offsetX,
+                    element.header.Position.y + offsetY
+                }
+                element.label.Position = {
+                    element.label.Position.x + offsetX,
+                    element.label.Position.y + offsetY
+                }
+                element.valueText.Position = {
+                    element.valueText.Position.x + offsetX,
+                    element.valueText.Position.y + offsetY
+                }
+                element.arrow.Position = {
+                    element.arrow.Position.x + offsetX,
+                    element.arrow.Position.y + offsetY
+                }
+                element.optionsContainer.Position = {
+                    element.optionsContainer.Position.x + offsetX,
+                    element.optionsContainer.Position.y + offsetY
+                }
+                for _, option in ipairs(element.optionElements) do
+                    option.background.Position = {
+                        option.background.Position.x + offsetX,
+                        option.background.Position.y + offsetY
+                    }
+                    option.text.Position = {
+                        option.text.Position.x + offsetX,
+                        option.text.Position.y + offsetY
+                    }
+                end
+            elseif element.type == "label" then
+                element.textObject.Position = {
+                    element.textObject.Position.x + offsetX,
+                    element.textObject.Position.y + offsetY
+                }
             end
         end
-        
-        -- Desenhar texto
-        SevereUI.DrawString(
-            {x, y + self.Offset + (self.Size.Height - 14) / 2},
-            SevereUI.FontColor,
-            self.Name
-        )
-        
-        -- Desenhar fundo do toggle
-        SevereUI.DrawFilledBox(
-            {toggleX, toggleY},
-            {toggleX + toggleSize, toggleY + toggleSize},
-            SevereUI.MainColor
-        )
-        
-        -- Desenhar estado ativo
-        if self.Value then
-            SevereUI.DrawFilledBox(
-                {toggleX + 2, toggleY + 2},
-                {toggleX + toggleSize - 2, toggleY + toggleSize - 2},
-                SevereUI.AccentColor
-            )
+    end
+end
+
+-- Mostrar a janela
+function SevereUI:Show()
+    self.visible = true
+    self.frame.Visible = true
+    self.innerFrame.Visible = true
+    self.titleBar.Visible = true
+    self.titleText.Visible = true
+    self.contentContainer.Visible = true
+    
+    -- Mostrar todos os elementos filhos
+    for _, element in pairs(self.elements) do
+        if element.Show then
+            element:Show()
+        end
+    end
+end
+
+-- Esconder a janela
+function SevereUI:Hide()
+    self.visible = false
+    self.frame.Visible = false
+    self.innerFrame.Visible = false
+    self.titleBar.Visible = false
+    self.titleText.Visible = false
+    self.contentContainer.Visible = false
+    
+    -- Esconder todos os elementos filhos
+    for _, element in pairs(self.elements) do
+        if element.Hide then
+            element:Hide()
+        end
+    end
+end
+
+-- Destruir a janela e todos os seus elementos
+function SevereUI:Destroy()
+    -- Remover da lista de janelas
+    for i, window in ipairs(SevereUI.Windows) do
+        if window == self then
+            table.remove(SevereUI.Windows, i)
+            break
         end
     end
     
-    table.insert(self.Elements, Toggle)
-    return Toggle
+    -- Destruir todos os elementos de desenho
+    self.frame:Remove()
+    self.innerFrame:Remove()
+    self.titleBar:Remove()
+    self.titleText:Remove()
+    self.contentContainer:Remove()
+    
+    -- Destruir todos os elementos filhos
+    for _, element in pairs(self.elements) do
+        if element.Destroy then
+            element:Destroy()
+        end
+    end
 end
 
--- =================================================
--- Componente Dropdown
--- =================================================
-
-function GroupBox:AddDropdown(params)
-    local Dropdown = {
-        Name = params.Name or "Dropdown",
-        Offset = self.ContentY,
-        Size = {Width = self.Size.Width - 20, Height = 25},
-        Values = params.Values or {},
-        SelectedIndex = params.Default or 1,
-        OnChanged = params.OnChanged,
-        Open = false,
-        HoveredIndex = -1
+-- Adicionar uma nova aba
+function SevereUI:AddTab(name)
+    -- Criar a aba
+    local tab = {
+        name = name,
+        elements = {},
+        container = nil,
+        button = nil,
+        visible = false,
+        parent = self
     }
+    
+    -- Calcular a posição para o botão da aba
+    local tabIndex = #self.tabs + 1
+    local tabButtonWidth = 80
+    local tabButtonHeight = 25
+    local tabButtonX = self.contentContainer.Position.x + (tabIndex - 1) * tabButtonWidth
+    local tabButtonY = self.contentContainer.Position.y
+    
+    -- Criar o botão da aba
+    tab.button = Drawing.new("Square")
+    tab.button.Filled = true
+    tab.button.Visible = self.visible
+    tab.button.Size = {tabButtonWidth, tabButtonHeight}
+    tab.button.Position = {tabButtonX, tabButtonY}
+    tab.button.Color = (tabIndex == 1) and self.config.theme.foreground or self.config.theme.background
+    tab.button.Transparency = self.config.transparency
+    
+    -- Criar o texto do botão da aba
+    tab.buttonText = Drawing.new("Text")
+    tab.buttonText.Text = name
+    tab.buttonText.Visible = self.visible
+    tab.buttonText.Center = true
+    tab.buttonText.Position = {
+        tab.button.Position.x + tab.button.Size.x / 2,
+        tab.button.Position.y + tab.button.Size.y / 2 - self.config.textSize / 2
+    }
+    tab.buttonText.Color = self.config.theme.text
+    tab.buttonText.Size = self.config.textSize
+    tab.buttonText.Font = self.config.font
+    tab.buttonText.Transparency = self.config.transparency
+    
+    -- Criar o contêiner de conteúdo da aba
+    tab.container = Drawing.new("Square")
+    tab.container.Filled = true
+    tab.container.Visible = tabIndex == 1 and self.visible
+    tab.container.Size = {
+        self.contentContainer.Size.x,
+        self.contentContainer.Size.y - tabButtonHeight
+    }
+    tab.container.Position = {
+        self.contentContainer.Position.x,
+        self.contentContainer.Position.y + tabButtonHeight
+    }
+    tab.container.Color = self.config.theme.background
+    tab.container.Transparency = self.config.transparency
+    
+    -- Adicionar funções à aba
+    tab.Show = function()
+        tab.visible = true
+        tab.container.Visible = self.visible
+        tab.button.Color = self.config.theme.foreground
+        
+        -- Mostrar todos os elementos filhos da aba
+        for _, element in pairs(tab.elements) do
+            if element.Show then
+                element:Show()
+            end
+        end
+    end
+    
+    tab.Hide = function()
+        tab.visible = false
+        tab.container.Visible = false
+        tab.button.Color = self.config.theme.background
+        
+        -- Esconder todos os elementos filhos da aba
+        for _, element in pairs(tab.elements) do
+            if element.Hide then
+                element:Hide()
+            end
+        end
+    end
+    
+    tab.Destroy = function()
+        tab.button:Remove()
+        tab.buttonText:Remove()
+        tab.container:Remove()
+        
+        -- Destruir todos os elementos filhos da aba
+        for _, element in pairs(tab.elements) do
+            if element.Destroy then
+                element:Destroy()
+            end
+        end
+    end
+    
+    -- Adicionar à lista de abas
+    table.insert(self.tabs, tab)
+    
+    -- Se for a primeira aba, torná-la ativa
+    if tabIndex == 1 then
+        self.currentTab = tab
+        tab.visible = true
+    end
+    
+    -- Configurar clique na aba
+    spawn(function()
+        while self.visible do
+            if not self.visible then
+                wait(0.1)
+                continue
+            end
+            
+            local mousePos = getmouseposition()
+            
+            -- Verificar se o mouse está sobre o botão da aba
+            local overTabButton = (
+                mousePos.x >= tab.button.Position.x and
+                mousePos.x <= tab.button.Position.x + tab.button.Size.x and
+                mousePos.y >= tab.button.Position.y and
+                mousePos.y <= tab.button.Position.y + tab.button.Size.y
+            )
+            
+            -- Mudar para esta aba quando clicada
+            if overTabButton and isleftclicked() then
+                -- Esconder a aba atual
+                if self.currentTab then
+                    self.currentTab:Hide()
+                end
+                
+                -- Mostrar esta aba
+                self.currentTab = tab
+                tab:Show()
+                
+                -- Esperar um momento para evitar acionamentos múltiplos
+                wait(0.2)
+            end
+            
+            wait(0.01)
+        end
+    end)
+    
+    return tab
+end
 
-    -- Incrementar ContentY para próximo elemento
-    self.ContentY = self.ContentY + Dropdown.Size.Height + 5
-    self.Size.Height = self.Size.Height + Dropdown.Size.Height + 5
+-- Função para adicionar elementos à janela ou aba
+function SevereUI:AddElement(element)
+    table.insert(self.elements, element)
+    return element
+end
 
-    -- Métodos auxiliares
-    function Dropdown:SetValue(value)
-        for i, v in ipairs(self.Values) do
-            if v == value then
-                self.SelectedIndex = i
+-- Criar um botão
+function SevereUI:CreateButton(options)
+    local parent = options.parent or self.currentTab or self
+    local container = parent.container or self.contentContainer
+    
+    -- Opções padrão
+    options = options or {}
+    options.text = options.text or "Button"
+    options.position = options.position or {10, 10}  -- Relative to parent
+    options.size = options.size or {100, 30}
+    options.callback = options.callback or function() end
+    
+    -- Criar o botão
+    local button = {
+        type = "button",
+        text = options.text,
+        callback = options.callback,
+        parent = parent,
+        visible = true
+    }
+    
+    -- Posição absoluta
+    local absolutePosition = {
+        container.Position.x + options.position[1],
+        container.Position.y + options.position[2]
+    }
+    
+    -- Criar o background do botão
+    button.background = Drawing.new("Square")
+    button.background.Filled = true
+    button.background.Visible = parent.visible and self.visible
+    button.background.Size = options.size
+    button.background.Position = absolutePosition
+    button.background.Color = self.config.theme.foreground
+    button.background.Transparency = self.config.transparency
+    
+    -- Criar o texto do botão
+    button.label = Drawing.new("Text")
+    button.label.Text = options.text
+    button.label.Visible = parent.visible and self.visible
+    button.label.Center = true
+    button.label.Position = {
+        absolutePosition[1] + options.size[1] / 2,
+        absolutePosition[2] + options.size[2] / 2 - self.config.textSize / 2
+    }
+    button.label.Color = self.config.theme.text
+    button.label.Size = self.config.textSize
+    button.label.Font = self.config.font
+    button.label.Transparency = self.config.transparency
+    
+    -- Criar funções para o botão
+    button.Show = function()
+        button.visible = true
+        button.background.Visible = parent.visible and self.visible
+        button.label.Visible = parent.visible and self.visible
+    end
+    
+    button.Hide = function()
+        button.visible = false
+        button.background.Visible = false
+        button.label.Visible = false
+    end
+    
+    button.Destroy = function()
+        button.background:Remove()
+        button.label:Remove()
+    end
+    
+    -- Configurar clique no botão
+    spawn(function()
+        while true do
+            if not self.visible or not parent.visible then
+                wait(0.1)
+                continue
+            end
+            
+            local mousePos = getmouseposition()
+            
+            -- Verificar se o mouse está sobre o botão
+            local overButton = (
+                mousePos.x >= button.background.Position.x and
+                mousePos.x <= button.background.Position.x + button.background.Size.x and
+                mousePos.y >= button.background.Position.y and
+                mousePos.y <= button.background.Position.y + button.background.Size.y
+            )
+            
+            -- Alterar cor quando hover
+            if overButton then
+                button.background.Color = self.config.theme.highlight
+                
+                -- Acionar callback quando clicado
+                if isleftclicked() then
+                    button.callback()
+                    wait(0.2)  -- Evitar múltiplos cliques
+                end
+            else
+                button.background.Color = self.config.theme.foreground
+            end
+            
+            wait(0.01)
+        end
+    end)
+    
+    -- Adicionar à lista de elementos
+    table.insert(parent.elements, button)
+    
+    return button
+end
+
+-- Criar um Toggle
+function SevereUI:CreateToggle(options)
+    local parent = options.parent or self.currentTab or self
+    local container = parent.container or self.contentContainer
+    
+    -- Opções padrão
+    options = options or {}
+    options.text = options.text or "Toggle"
+    options.position = options.position or {10, 10}
+    options.size = options.size or {20, 20}
+    options.default = options.default or false
+    options.callback = options.callback or function() end
+    
+    -- Criar o toggle
+    local toggle = {
+        type = "toggle",
+        text = options.text,
+        value = options.default,
+        callback = options.callback,
+        parent = parent,
+        visible = true
+    }
+    
+    -- Posição absoluta
+    local absolutePosition = {
+        container.Position.x + options.position[1],
+        container.Position.y + options.position[2]
+    }
+    
+    -- Criar o background do toggle
+    toggle.background = Drawing.new("Square")
+    toggle.background.Filled = true
+    toggle.background.Visible = parent.visible and self.visible
+    toggle.background.Size = options.size
+    toggle.background.Position = absolutePosition
+    toggle.background.Color = toggle.value and self.config.theme.accent or self.config.theme.foreground
+    toggle.background.Transparency = self.config.transparency
+    
+    -- Criar o texto do toggle
+    toggle.label = Drawing.new("Text")
+    toggle.label.Text = options.text
+    toggle.label.Visible = parent.visible and self.visible
+    toggle.label.Center = false
+    toggle.label.Position = {
+        absolutePosition[1] + options.size[1] + 10,
+        absolutePosition[2] + options.size[2] / 2 - self.config.textSize / 2
+    }
+    toggle.label.Color = self.config.theme.text
+    toggle.label.Size = self.config.textSize
+    toggle.label.Font = self.config.font
+    toggle.label.Transparency = self.config.transparency
+    
+    -- Criar funções para o toggle
+    toggle.Show = function()
+        toggle.visible = true
+        toggle.background.Visible = parent.visible and self.visible
+        toggle.label.Visible = parent.visible and self.visible
+    end
+    
+    toggle.Hide = function()
+        toggle.visible = false
+        toggle.background.Visible = false
+        toggle.label.Visible = false
+    end
+    
+    toggle.Destroy = function()
+        toggle.background:Remove()
+        toggle.label:Remove()
+    end
+    
+    toggle.SetValue = function(value)
+        toggle.value = value
+        toggle.background.Color = value and self.config.theme.accent or self.config.theme.foreground
+        toggle.callback(value)
+    end
+    
+    toggle.GetValue = function()
+        return toggle.value
+    end
+    
+    -- Configurar clique no toggle
+    spawn(function()
+        while true do
+            if not self.visible or not parent.visible then
+                wait(0.1)
+                continue
+            end
+            
+            local mousePos = getmouseposition()
+            
+            -- Verificar se o mouse está sobre o toggle
+            local overToggle = (
+                mousePos.x >= toggle.background.Position.x and
+                mousePos.x <= toggle.background.Position.x + toggle.background.Size.x and
+                mousePos.y >= toggle.background.Position.y and
+                mousePos.y <= toggle.background.Position.y + toggle.background.Size.y
+            )
+            
+            -- Mudar estado quando clicado
+            if overToggle and isleftclicked() then
+                toggle.SetValue(not toggle.value)
+                wait(0.2)  -- Evitar múltiplos cliques
+            end
+            
+            wait(0.01)
+        end
+    end)
+    
+    -- Adicionar à lista de elementos
+    table.insert(parent.elements, toggle)
+    
+    return toggle
+end
+
+-- Criar um Slider
+function SevereUI:CreateSlider(options)
+    local parent = options.parent or self.currentTab or self
+    local container = parent.container or self.contentContainer
+    
+    -- Opções padrão
+    options = options or {}
+    options.text = options.text or "Slider"
+    options.position = options.position or {10, 10}
+    options.size = options.size or {150, 15}
+    options.min = options.min or 0
+    options.max = options.max or 100
+    options.default = options.default or options.min
+    options.increment = options.increment or 1
+    options.callback = options.callback or function() end
+    
+    -- Garantir que o valor padrão esteja dentro dos limites
+    options.default = math.max(options.min, math.min(options.max, options.default))
+    
+    -- Criar o slider
+    local slider = {
+        type = "slider",
+        text = options.text,
+        value = options.default,
+        min = options.min,
+        max = options.max,
+        increment = options.increment,
+        callback = options.callback,
+        parent = parent,
+        visible = true,
+        dragging = false
+    }
+    
+    -- Posição absoluta
+    local absolutePosition = {
+        container.Position.x + options.position[1],
+        container.Position.y + options.position[2]
+    }
+    
+    -- Criar o texto do slider
+    slider.label = Drawing.new("Text")
+    slider.label.Text = options.text .. ": " .. tostring(slider.value)
+    slider.label.Visible = parent.visible and self.visible
+    slider.label.Center = false
+    slider.label.Position = {
+        absolutePosition[1],
+        absolutePosition[2] - self.config.textSize - 5
+    }
+    slider.label.Color = self.config.theme.text
+    slider.label.Size = self.config.textSize
+    slider.label.Font = self.config.font
+    slider.label.Transparency = self.config.transparency
+    
+    -- Criar o background do slider
+    slider.background = Drawing.new("Square")
+    slider.background.Filled = true
+    slider.background.Visible = parent.visible and self.visible
+    slider.background.Size = options.size
+    slider.background.Position = absolutePosition
+    slider.background.Color = self.config.theme.foreground
+    slider.background.Transparency = self.config.transparency
+    
+    -- Calcular a posição inicial do handle
+    local handlePosition = ((slider.value - slider.min) / (slider.max - slider.min)) * (options.size[1] - 10)
+    
+    -- Criar o handle do slider
+    slider.handle = Drawing.new("Square")
+    slider.handle.Filled = true
+    slider.handle.Visible = parent.visible and self.visible
+    slider.handle.Size = {10, options.size[2] + 5}
+    slider.handle.Position = {
+        absolutePosition[1] + handlePosition,
+        absolutePosition[2] - 2.5
+    }
+slider.handle.Color = self.config.theme.accent
+slider.handle.Transparency = self.config.transparency
+
+-- Criar o fill do slider
+slider.fill = Drawing.new("Square")
+slider.fill.Filled = true
+slider.fill.Visible = parent.visible and self.visible
+slider.fill.Size = {handlePosition, options.size[2]}
+slider.fill.Position = absolutePosition
+slider.fill.Color = {
+    self.config.theme.accent[1] * 0.7,
+    self.config.theme.accent[2] * 0.7,
+    self.config.theme.accent[3] * 0.7
+}
+slider.fill.Transparency = self.config.transparency
+
+-- Criar funções para o slider
+slider.Show = function()
+    slider.visible = true
+    slider.background.Visible = parent.visible and self.visible
+    slider.label.Visible = parent.visible and self.visible
+    slider.handle.Visible = parent.visible and self.visible
+    slider.fill.Visible = parent.visible and self.visible
+end
+
+slider.Hide = function()
+    slider.visible = false
+    slider.background.Visible = false
+    slider.label.Visible = false
+    slider.handle.Visible = false
+    slider.fill.Visible = false
+end
+
+slider.Destroy = function()
+    slider.background:Remove()
+    slider.label:Remove()
+    slider.handle:Remove()
+    slider.fill:Remove()
+end
+
+slider.SetValue = function(value)
+    -- Arredondar para o incremento mais próximo
+    value = math.floor((value - slider.min) / slider.increment + 0.5) * slider.increment + slider.min
+    
+    -- Limitar o valor
+    value = math.max(slider.min, math.min(slider.max, value))
+    
+    -- Atualizar valor
+    slider.value = value
+    
+    -- Atualizar texto
+    slider.label.Text = options.text .. ": " .. tostring(value)
+    
+    -- Atualizar posição do handle e do fill
+    local handlePosition = ((value - slider.min) / (slider.max - slider.min)) * (options.size[1] - 10)
+    slider.handle.Position = {
+        absolutePosition[1] + handlePosition,
+        absolutePosition[2] - 2.5
+    }
+    slider.fill.Size = {handlePosition, options.size[2]}
+    
+    -- Acionar callback
+    slider.callback(value)
+end
+
+slider.GetValue = function()
+    return slider.value
+end
+
+-- Configurar interação com o slider
+spawn(function()
+    while true do
+        if not self.visible or not parent.visible then
+            wait(0.1)
+            continue
+        end
+        
+        local mousePos = getmouseposition()
+        
+        -- Verificar se o mouse está sobre o slider
+        local overSlider = (
+            mousePos.x >= slider.background.Position.x and
+            mousePos.x <= slider.background.Position.x + slider.background.Size.x and
+            mousePos.y >= slider.background.Position.y and
+            mousePos.y <= slider.background.Position.y + slider.background.Size.y
+        )
+        
+        -- Verificar se o mouse está sobre o handle
+        local overHandle = (
+            mousePos.x >= slider.handle.Position.x and
+            mousePos.x <= slider.handle.Position.x + slider.handle.Size.x and
+            mousePos.y >= slider.handle.Position.y and
+            mousePos.y <= slider.handle.Position.y + slider.handle.Size.y
+        )
+        
+        -- Iniciar arrasto
+        if (overSlider or overHandle) and isleftpressed() and not slider.dragging then
+            slider.dragging = true
+        end
+        
+        -- Terminar arrasto
+        if not isleftpressed() and slider.dragging then
+            slider.dragging = false
+        end
+        
+        -- Atualizar posição durante arrasto
+        if slider.dragging then
+            local relativeX = math.max(0, math.min(options.size[1] - 10, mousePos.x - absolutePosition[1]))
+            local newValue = slider.min + (relativeX / (options.size[1] - 10)) * (slider.max - slider.min)
+            slider.SetValue(newValue)
+        end
+        
+        wait(0.01)
+    end
+end)
+
+-- Adicionar à lista de elementos
+table.insert(parent.elements, slider)
+
+return slider
+end
+
+-- Criar um Label (texto estático)
+function SevereUI:CreateLabel(options)
+    local parent = options.parent or self.currentTab or self
+    local container = parent.container or self.contentContainer
+    
+    -- Opções padrão
+    options = options or {}
+    options.text = options.text or "Label"
+    options.position = options.position or {10, 10}
+    options.center = options.center or false
+    
+    -- Criar o label
+    local label = {
+        type = "label",
+        text = options.text,
+        parent = parent,
+        visible = true
+    }
+    
+    -- Posição absoluta
+    local absolutePosition = {
+        container.Position.x + options.position[1],
+        container.Position.y + options.position[2]
+    }
+    
+    -- Criar o texto do label
+    label.textObject = Drawing.new("Text")
+    label.textObject.Text = options.text
+    label.textObject.Visible = parent.visible and self.visible
+    label.textObject.Center = options.center
+    label.textObject.Position = absolutePosition
+    label.textObject.Color = self.config.theme.text
+    label.textObject.Size = self.config.textSize
+    label.textObject.Font = self.config.font
+    label.textObject.Transparency = self.config.transparency
+    
+    -- Criar funções para o label
+    label.Show = function()
+        label.visible = true
+        label.textObject.Visible = parent.visible and self.visible
+    end
+    
+    label.Hide = function()
+        label.visible = false
+        label.textObject.Visible = false
+    end
+    
+    label.Destroy = function()
+        label.textObject:Remove()
+    end
+    
+    label.SetText = function(text)
+        label.text = text
+        label.textObject.Text = text
+    end
+    
+    label.GetText = function()
+        return label.text
+    end
+    
+    -- Adicionar à lista de elementos
+    table.insert(parent.elements, label)
+    
+    return label
+end
+
+-- Criar um Dropdown
+function SevereUI:CreateDropdown(options)
+    local parent = options.parent or self.currentTab or self
+    local container = parent.container or self.contentContainer
+    
+    -- Opções padrão
+    options = options or {}
+    options.text = options.text or "Dropdown"
+    options.position = options.position or {10, 10}
+    options.size = options.size or {150, 30}
+    options.options = options.options or {"Option 1", "Option 2", "Option 3"}
+    options.default = options.default or options.options[1]
+    options.callback = options.callback or function() end
+    
+    -- Criar o dropdown
+    local dropdown = {
+        type = "dropdown",
+        text = options.text,
+        options = options.options,
+        value = options.default,
+        open = false,
+        callback = options.callback,
+        parent = parent,
+        visible = true,
+        elements = {}
+    }
+    
+    -- Posição absoluta
+    local absolutePosition = {
+        container.Position.x + options.position[1],
+        container.Position.y + options.position[2]
+    }
+    
+    -- Criar o texto do dropdown
+    dropdown.label = Drawing.new("Text")
+    dropdown.label.Text = options.text
+    dropdown.label.Visible = parent.visible and self.visible
+    dropdown.label.Center = false
+    dropdown.label.Position = {
+        absolutePosition[1],
+        absolutePosition[2] - self.config.textSize - 5
+    }
+    dropdown.label.Color = self.config.theme.text
+    dropdown.label.Size = self.config.textSize
+    dropdown.label.Font = self.config.font
+    dropdown.label.Transparency = self.config.transparency
+    
+    -- Criar o background do dropdown (header)
+    dropdown.header = Drawing.new("Square")
+    dropdown.header.Filled = true
+    dropdown.header.Visible = parent.visible and self.visible
+    dropdown.header.Size = options.size
+    dropdown.header.Position = absolutePosition
+    dropdown.header.Color = self.config.theme.foreground
+    dropdown.header.Transparency = self.config.transparency
+    
+    -- Criar o texto do valor atual
+    dropdown.valueText = Drawing.new("Text")
+    dropdown.valueText.Text = dropdown.value
+    dropdown.valueText.Visible = parent.visible and self.visible
+    dropdown.valueText.Center = false
+    dropdown.valueText.Position = {
+        absolutePosition[1] + 10,
+        absolutePosition[2] + options.size[2] / 2 - self.config.textSize / 2
+    }
+    dropdown.valueText.Color = self.config.theme.text
+    dropdown.valueText.Size = self.config.textSize
+    dropdown.valueText.Font = self.config.font
+    dropdown.valueText.Transparency = self.config.transparency
+    
+    -- Criar o ícone de seta para baixo
+    dropdown.arrow = Drawing.new("Text")
+    dropdown.arrow.Text = "▼"
+    dropdown.arrow.Visible = parent.visible and self.visible
+    dropdown.arrow.Center = false
+    dropdown.arrow.Position = {
+        absolutePosition[1] + options.size[1] - 20,
+        absolutePosition[2] + options.size[2] / 2 - self.config.textSize / 2
+    }
+    dropdown.arrow.Color = self.config.theme.text
+    dropdown.arrow.Size = self.config.textSize
+    dropdown.arrow.Font = self.config.font
+    dropdown.arrow.Transparency = self.config.transparency
+    
+    -- Criar o container de opções (invisível inicialmente)
+    dropdown.optionsContainer = Drawing.new("Square")
+    dropdown.optionsContainer.Filled = true
+    dropdown.optionsContainer.Visible = false
+    dropdown.optionsContainer.Size = {
+        options.size[1],
+        (#options.options * options.size[2])
+    }
+    dropdown.optionsContainer.Position = {
+        absolutePosition[1],
+        absolutePosition[2] + options.size[2]
+    }
+    dropdown.optionsContainer.Color = self.config.theme.background
+    dropdown.optionsContainer.Transparency = self.config.transparency
+    
+    -- Criar as opções
+    dropdown.optionElements = {}
+    for i, option in ipairs(options.options) do
+        local optionBackground = Drawing.new("Square")
+        optionBackground.Filled = true
+        optionBackground.Visible = false
+        optionBackground.Size = {options.size[1], options.size[2]}
+        optionBackground.Position = {
+            dropdown.optionsContainer.Position.x,
+            dropdown.optionsContainer.Position.y + (i-1) * options.size[2]
+        }
+        optionBackground.Color = self.config.theme.foreground
+        optionBackground.Transparency = self.config.transparency
+        
+        local optionText = Drawing.new("Text")
+        optionText.Text = option
+        optionText.Visible = false
+        optionText.Center = false
+        optionText.Position = {
+            optionBackground.Position.x + 10,
+            optionBackground.Position.y + options.size[2] / 2 - self.config.textSize / 2
+        }
+        optionText.Color = self.config.theme.text
+        optionText.Size = self.config.textSize
+        optionText.Font = self.config.font
+        optionText.Transparency = self.config.transparency
+        
+        table.insert(dropdown.optionElements, {
+            background = optionBackground,
+            text = optionText,
+            value = option
+        })
+    end
+    
+    -- Criar funções para o dropdown
+    dropdown.Show = function()
+        dropdown.visible = true
+        dropdown.header.Visible = parent.visible and self.visible
+        dropdown.label.Visible = parent.visible and self.visible
+        dropdown.valueText.Visible = parent.visible and self.visible
+        dropdown.arrow.Visible = parent.visible and self.visible
+        
+        if dropdown.open then
+            dropdown.optionsContainer.Visible = parent.visible and self.visible
+            for _, option in ipairs(dropdown.optionElements) do
+                option.background.Visible = parent.visible and self.visible
+                option.text.Visible = parent.visible and self.visible
+            end
+        end
+    end
+    
+    dropdown.Hide = function()
+        dropdown.visible = false
+        dropdown.header.Visible = false
+        dropdown.label.Visible = false
+        dropdown.valueText.Visible = false
+        dropdown.arrow.Visible = false
+        dropdown.optionsContainer.Visible = false
+        
+        for _, option in ipairs(dropdown.optionElements) do
+            option.background.Visible = false
+            option.text.Visible = false
+        end
+    end
+    
+    dropdown.Destroy = function()
+        dropdown.header:Remove()
+        dropdown.label:Remove()
+        dropdown.valueText:Remove()
+        dropdown.arrow:Remove()
+        dropdown.optionsContainer:Remove()
+        
+        for _, option in ipairs(dropdown.optionElements) do
+            option.background:Remove()
+            option.text:Remove()
+        end
+    end
+    
+    dropdown.SetValue = function(value)
+        -- Verificar se o valor existe nas opções
+        local valueExists = false
+        for _, option in ipairs(dropdown.options) do
+            if option == value then
+                valueExists = true
                 break
             end
         end
-    end
-
-    function Dropdown:SetValues(newValues)
-        if type(newValues) == "table" then
-            self.Values = newValues
-            self.SelectedIndex = math.min(self.SelectedIndex, #newValues)
-            if self.SelectedIndex < 1 then self.SelectedIndex = 1 end
-        end
-    end
-
-    function Dropdown:Render(x, y)
-        -- Desenhar nome
-        SevereUI.DrawString(
-            {x, y + self.Offset - 15},
-            SevereUI.FontColor,
-            self.Name
-        )
         
-        -- Desenhar caixa principal
-        SevereUI.DrawFilledBox(
-            {x, y + self.Offset},
-            {x + self.Size.Width, y + self.Offset + self.Size.Height},
-            self.Open and SevereUI.AccentColor or SevereUI.MainColor
-        )
-        
-        -- Desenhar texto selecionado
-        local selectedText = self.Values[self.SelectedIndex] or "None"
-        SevereUI.DrawString(
-            {x + 5, y + self.Offset + 5},
-            SevereUI.FontColor,
-            selectedText
-        )
-        
-        -- Desenhar seta
-        local arrowX = x + self.Size.Width - 15
-        local arrowY = y + self.Offset + 10
-        
-        -- Triângulo para baixo
-        SevereUI.DrawFilledBox(
-            {arrowX - 5, arrowY},
-            {arrowX + 5, arrowY + 1},
-            SevereUI.FontColor
-        )
-        SevereUI.DrawFilledBox(
-            {arrowX - 4, arrowY + 1},
-            {arrowX + 4, arrowY + 2},
-            SevereUI.FontColor
-        )
-        SevereUI.DrawFilledBox(
-            {arrowX - 3, arrowY + 2},
-            {arrowX + 3, arrowY + 3},
-            SevereUI.FontColor
-        )
-        SevereUI.DrawFilledBox(
-            {arrowX - 2, arrowY + 3},
-            {arrowX + 2, arrowY + 4},
-            SevereUI.FontColor
-        )
-        SevereUI.DrawFilledBox(
-            {arrowX - 1, arrowY + 4},
-            {arrowX + 1, arrowY + 5},
-            SevereUI.FontColor
-        )
-        
-        -- Verificar clique na caixa principal
-        local dropdownArea = {
-            x, y + self.Offset,
-            x + self.Size.Width, y + self.Offset + self.Size.Height
-        }
-        
-        if SevereUI.MouseInArea(dropdownArea) and SevereUI.Mouse.LeftClicked then
-            self.Open = not self.Open
-            self.HoveredIndex = -1
+        if not valueExists then
+            warn("Value '" .. tostring(value) .. "' does not exist in dropdown options.")
+            return
         end
         
-        -- Renderizar lista suspensa
-        if self.Open and #self.Values > 0 then
-            local itemHeight = 20
-            local listHeight = #self.Values * itemHeight
-            
-            -- Aumentar temporariamente a altura da caixa
-            local originalHeight = self.Size.Height
-            self.Size.Height = self.Size.Height + listHeight
-            
-            -- Desenhar fundo da lista
-            SevereUI.DrawFilledBox(
-                {x, y + self.Offset + originalHeight},
-                {x + self.Size.Width, y + self.Offset + originalHeight + listHeight},
-                SevereUI.MainColor
-            )
-            
-            -- Verificar hover e renderizar itens
-            local mouseX, mouseY = unpack(SevereUI.Mouse.Position)
-            local newHoveredIndex = -1
-            
-            for i, value in ipairs(self.Values) do
-                local itemY = y + self.Offset + originalHeight + (i-1) * itemHeight
-                
-                -- Verificar mouse over
-                if mouseX >= x and mouseX <= x + self.Size.Width and
-                   mouseY >= itemY and mouseY <= itemY + itemHeight then
-                    newHoveredIndex = i
-                    
-                    -- Desenhar highlight
-                    SevereUI.DrawFilledBox(
-                        {x, itemY},
-                        {x + self.Size.Width, itemY + itemHeight},
-                        SevereUI.AccentColor
-                    )
+        -- Atualizar valor
+        dropdown.value = value
+        dropdown.valueText.Text = value
+        
+        -- Acionar callback
+        dropdown.callback(value)
+    end
+    
+    dropdown.GetValue = function()
+        return dropdown.value
+    end
+    
+    dropdown.ToggleOptions = function()
+        dropdown.open = not dropdown.open
+        
+        -- Atualizar seta
+        dropdown.arrow.Text = dropdown.open and "▲" or "▼"
+        
+        -- Mostrar/esconder opções
+        dropdown.optionsContainer.Visible = dropdown.open and parent.visible and self.visible
+        
+        for _, option in ipairs(dropdown.optionElements) do
+            option.background.Visible = dropdown.open and parent.visible and self.visible
+            option.text.Visible = dropdown.open and parent.visible and self.visible
+        end
+    end
+    
+    -- Configurar interação com o dropdown
+    spawn(function()
+        while true do
+            if not self.visible or not parent.visible then
+                if dropdown.open then
+                    dropdown.ToggleOptions()
                 end
-                
-                -- Desenhar texto do item
-                SevereUI.DrawString(
-                    {x + 5, itemY + 3},
-                    SevereUI.FontColor,
-                    tostring(value)
-                )
+                wait(0.1)
+                continue
             end
             
-            -- Atualizar índice destacado
-            self.HoveredIndex = newHoveredIndex
+            local mousePos = getmouseposition()
             
-            -- Verificar seleção
-            if SevereUI.Mouse.LeftClicked and self.HoveredIndex > 0 then
-                if self.SelectedIndex ~= self.HoveredIndex then
-                    self.SelectedIndex = self.HoveredIndex
-                    if self.OnChanged then
-                        self.OnChanged(self.Values[self.SelectedIndex])
+            -- Verificar se o mouse está sobre o header
+            local overHeader = (
+                mousePos.x >= dropdown.header.Position.x and
+                mousePos.x <= dropdown.header.Position.x + dropdown.header.Size.x and
+                mousePos.y >= dropdown.header.Position.y and
+                mousePos.y <= dropdown.header.Position.y + dropdown.header.Size.y
+            )
+            
+            -- Alterar cor do header quando hover
+            if overHeader then
+                dropdown.header.Color = self.config.theme.highlight
+                
+                -- Mostrar/esconder opções quando clicado
+                if isleftclicked() then
+                    dropdown.ToggleOptions()
+                    wait(0.2)  -- Evitar múltiplos cliques
+                end
+            else
+                dropdown.header.Color = self.config.theme.foreground
+            end
+            
+            -- Processar opções se estiver aberto
+            if dropdown.open then
+                -- Verificar se clicou fora do dropdown
+                local clickedOutside = isleftclicked() and not (
+                    mousePos.x >= dropdown.optionsContainer.Position.x and
+                    mousePos.x <= dropdown.optionsContainer.Position.x + dropdown.optionsContainer.Size.x and
+                    mousePos.y >= dropdown.header.Position.y and
+                    mousePos.y <= dropdown.optionsContainer.Position.y + dropdown.optionsContainer.Size.y
+                )
+                
+                if clickedOutside then
+                    dropdown.ToggleOptions()
+                    wait(0.2)  -- Evitar múltiplos cliques
+                end
+                
+                -- Verificar cliques nas opções
+                for i, option in ipairs(dropdown.optionElements) do
+                    local overOption = (
+                        mousePos.x >= option.background.Position.x and
+                        mousePos.x <= option.background.Position.x + option.background.Size.x and
+                        mousePos.y >= option.background.Position.y and
+                        mousePos.y <= option.background.Position.y + option.background.Size.y
+                    )
+                    
+                    -- Alterar cor da opção quando hover
+                    if overOption then
+                        option.background.Color = self.config.theme.highlight
+                        
+                        -- Selecionar opção quando clicada
+                        if isleftclicked() then
+                            dropdown.SetValue(option.value)
+                            dropdown.ToggleOptions()
+                            wait(0.2)  -- Evitar múltiplos cliques
+                        end
+                    else
+                        option.background.Color = self.config.theme.foreground
                     end
                 end
-                self.Open = false
             end
             
-            -- Restaurar altura original
-            self.Size.Height = originalHeight
+            wait(0.01)
         end
-    end
+    end)
     
-    table.insert(self.Elements, Dropdown)
-    return Dropdown
+    -- Adicionar à lista de elementos
+    table.insert(parent.elements, dropdown)
+    
+    return dropdown
 end
 
--- =================================================
--- Componente Input
--- =================================================
-
-function GroupBox:AddInput(params)
-    local Input = {
-        Name = params.Name or "Input",
-        Offset = self.ContentY,
-        Size = {Width = self.Size.Width - 20, Height = 25},
-        Value = params.Default or "",
-        Placeholder = params.Placeholder or "Digite aqui...",
-        MaxLength = params.MaxLength or 50,
-        OnChange = params.OnChange,
-        Focused = false,
-        CursorVisible = false,
-        CursorTimer = 0
-    }
-
-    -- Incrementar ContentY para próximo elemento
-    self.ContentY = self.ContentY + Input.Size.Height + 15
-    self.Size.Height = self.Size.Height + Input.Size.Height + 15
-
-    function Input:Render(x, y)
-        -- Desenhar nome
-        SevereUI.DrawString(
-            {x, y + self.Offset - 15},
-            SevereUI.FontColor,
-            self.Name
-        )
-        
-        -- Desenhar caixa de entrada
-        local bgColor = self.Focused and SevereUI.AccentColor or SevereUI.MainColor
-        
-        SevereUI.DrawFilledBox(
-            {x, y + self.Offset},
-            {x + self.Size.Width, y + self.Offset + self.Size.Height},
-            bgColor
-        )
-        
-        -- Texto ou placeholder
-        local displayText = self.Value ~= "" and self.Value or self.Placeholder
-        local textColor = self.Value ~= "" and SevereUI.FontColor or {127, 127, 127}
-        
-        SevereUI.DrawString(
-            {x + 5, y + self.Offset + 5},
-            textColor,
-            string.sub(displayText, 1, self.MaxLength)
-        )
-        
-        -- Cursor piscante
-        if self.Focused then
-            local cursorTime = (time() - self.CursorTimer) % 1
-            if cursorTime > 0.5 then
-                local textWidth = SevereUI.CalcTextWidth(self.Value)
-                
-                SevereUI.DrawFilledBox(
-                    {x + 5 + textWidth, y + self.Offset + 3},
-                    {x + 5 + textWidth + 1, y + self.Offset + self.Size.Height - 3},
-                    SevereUI.FontColor
-                )
-            end
-        end
-        
-        -- Verificar clique
-    local inputArea = {
-        x, y + self.Offset,
-        x + self.Size.Width, y + self.Offset + self.Size.Height
-    }
-    
-    if SevereUI.MouseInArea(inputArea) and SevereUI.Mouse.LeftClicked then
-        self.Focused = true
-        self.CursorTimer = time()
-        
-        -- Resetar foco em outros inputs se houver
-        for _, element in ipairs(self.GroupBox.Elements) do
-            if element ~= self and element.Focused then
-                element.Focused = false
-            end
-        end
-    elseif SevereUI.Mouse.LeftClicked and self.Focused then
-        self.Focused = false
-    end
-    
-    -- Capturar entrada de texto quando focado
-    if self.Focused then
-        -- Obter tecla pressionada
-        local key = SevereUI.GetKey()
-        
-        if key then
-            -- Backspace
-            if key == 8 then
-                self.Value = string.sub(self.Value, 1, -2)
-                if self.OnChange then self.OnChange(self.Value) end
-            -- Enter
-            elseif key == 13 then
-                self.Focused = false
-            -- Caracteres válidos
-            elseif key >= 32 and key <= 126 and #self.Value < self.MaxLength then
-                local char = string.char(key)
-                self.Value = self.Value .. char
-                if self.OnChange then self.OnChange(self.Value) end
-            end
-        end
-    end
-}
-
-table.insert(self.Elements, Input)
-return Input
-end
-
--- =================================================
--- Componente ColorPicker
--- =================================================
-
-function GroupBox:AddColorPicker(params)
-    local ColorPicker = {
-        Name = params.Name or "Color",
-        Offset = self.ContentY,
-        Size = {Width = self.Size.Width - 20, Height = 25},
-        Value = params.Default or {255, 255, 255},
-        OnChanged = params.OnChanged,
-        Open = false,
-        Hue = 0,
-        Saturation = 1,
-        Brightness = 0.5
-    }
-
-    -- Incrementar ContentY para próximo elemento
-    self.ContentY = self.ContentY + ColorPicker.Size.Height + 5
-    self.Size.Height = self.Size.Height + ColorPicker.Size.Height + 5
-
-    -- Conversão HSB para RGB
-    local function HSBToRGB(h, s, b)
-        h = h % 360
-        local c = b * s
-        local x = c * (1 - math.abs((h/60) % 2 - 1))
-        local m = b - c
-        
-        local r, g, b = 0, 0, 0
-        
-        if h < 60 then
-            r, g, b = c, x, 0
-        elseif h < 120 then
-            r, g, b = x, c, 0
-        elseif h < 180 then
-            r, g, b = 0, c, x
-        elseif h < 240 then
-            r, g, b = 0, x, c
-        elseif h < 300 then
-            r, g, b = x, 0, c
-        else
-            r, g, b = c, 0, x
-        end
-        
-        return {
-            math.floor((r + m) * 255),
-            math.floor((g + m) * 255),
-            math.floor((b + m) * 255)
-        }
-    end
-
-    function ColorPicker:Render(x, y)
-        -- Desenhar nome
-        SevereUI.DrawString(
-            {x, y + self.Offset - 15},
-            SevereUI.FontColor,
-            self.Name
-        )
-        
-        -- Desenhar caixa de seleção
-        local bgColor = self.Open and SevereUI.AccentColor or SevereUI.MainColor
-        
-        SevereUI.DrawFilledBox(
-            {x, y + self.Offset},
-            {x + self.Size.Width, y + self.Offset + self.Size.Height},
-            bgColor
-        )
-        
-        -- Preview da cor selecionada
-        SevereUI.DrawFilledBox(
-            {x + 5, y + self.Offset + 5},
-            {x + 25, y + self.Offset + self.Size.Height - 5},
-            self.Value
-        )
-        
-        -- Texto RGB
-        local rgbText = string.format("RGB(%d, %d, %d)", self.Value[1], self.Value[2], self.Value[3])
-        
-        SevereUI.DrawString(
-            {x + 35, y + self.Offset + 5},
-            SevereUI.FontColor,
-            rgbText
-        )
-        
-        -- Verificar clique na caixa principal
-        local pickerArea = {
-            x, y + self.Offset,
-            x + self.Size.Width, y + self.Offset + self.Size.Height
-        }
-        
-        if SevereUI.MouseInArea(pickerArea) and SevereUI.Mouse.LeftClicked then
-            self.Open = not self.Open
-        end
-        
-        -- Renderizar seletor de cores se aberto
-        if self.Open then
-            local pickerWidth = self.Size.Width
-            local pickerHeight = 150
-            
-            -- Fundo do seletor
-            SevereUI.DrawFilledBox(
-                {x, y + self.Offset + self.Size.Height},
-                {x + pickerWidth, y + self.Offset + self.Size.Height + pickerHeight},
-                SevereUI.MainColor
-            )
-            
-            -- Barra de matiz
-            local hueHeight = 20
-            for i = 0, pickerWidth - 10 do
-                local hue = (i / (pickerWidth - 10)) * 360
-                local color = HSBToRGB(hue, 1, 1)
-                
-                SevereUI.DrawFilledBox(
-                    {x + 5 + i, y + self.Offset + self.Size.Height + 5},
-                    {x + 6 + i, y + self.Offset + self.Size.Height + 5 + hueHeight},
-                    color
-                )
-            end
-            
-            -- Área de seleção de saturação/brilho
-            local sbAreaSize = 100
-            local sbAreaX = x + 5
-            local sbAreaY = y + self.Offset + self.Size.Height + 5 + hueHeight + 5
-            
-            -- Renderizar gradiente de SB (simplificado)
-            for sx = 0, sbAreaSize do
-                for sy = 0, sbAreaSize do
-                    local s = sx / sbAreaSize
-                    local b = 1 - (sy / sbAreaSize)
-                    local color = HSBToRGB(self.Hue, s, b)
-                    
-                    SevereUI.DrawFilledBox(
-                        {sbAreaX + sx, sbAreaY + sy},
-                        {sbAreaX + sx + 1, sbAreaY + sy + 1},
-                        color
-                    )
-                end
-            end
-            
-            -- Marcador de posição na barra de matiz
-            local hueMarkerX = x + 5 + (self.Hue / 360) * (pickerWidth - 10)
-            
-            SevereUI.DrawFilledBox(
-                {hueMarkerX - 2, y + self.Offset + self.Size.Height + 5},
-                {hueMarkerX + 2, y + self.Offset + self.Size.Height + 5 + hueHeight},
-                SevereUI.FontColor
-            )
-            
-            -- Marcador na área de SB
-            local sbMarkerX = sbAreaX + (self.Saturation * sbAreaSize)
-            local sbMarkerY = sbAreaY + ((1 - self.Brightness) * sbAreaSize)
-            
-            SevereUI.DrawFilledBox(
-                {sbMarkerX - 3, sbMarkerY - 3},
-                {sbMarkerX + 3, sbMarkerY + 3},
-                SevereUI.FontColor
-            )
-            
-            -- Verificar interações
-            local mouseX, mouseY = unpack(SevereUI.Mouse.Position)
-            
-            -- Interação com barra de matiz
-            local hueBarArea = {
-                x + 5, y + self.Offset + self.Size.Height + 5,
-                x + pickerWidth - 5, y + self.Offset + self.Size.Height + 5 + hueHeight
-            }
-            
-            if SevereUI.MouseInArea(hueBarArea) and SevereUI.Mouse.LeftPressed then
-                local newHue = ((mouseX - (x + 5)) / (pickerWidth - 10)) * 360
-                self.Hue = math.clamp(newHue, 0, 360)
-                self.Value = HSBToRGB(self.Hue, self.Saturation, self.Brightness)
-                
-                if self.OnChanged then
-                    self.OnChanged(self.Value)
-                end
-            end
-            
-            -- Interação com área de SB
-            local sbArea = {
-                sbAreaX, sbAreaY,
-                sbAreaX + sbAreaSize, sbAreaY + sbAreaSize
-            }
-            
-            if SevereUI.MouseInArea(sbArea) and SevereUI.Mouse.LeftPressed then
-                local newS = (mouseX - sbAreaX) / sbAreaSize
-                local newB = 1 - ((mouseY - sbAreaY) / sbAreaSize)
-                
-                self.Saturation = math.clamp(newS, 0, 1)
-                self.Brightness = math.clamp(newB, 0, 1)
-                self.Value = HSBToRGB(self.Hue, self.Saturation, self.Brightness)
-                
-                if self.OnChanged then
-                    self.OnChanged(self.Value)
-                end
-            end
-        end
-    end
-    
-    table.insert(self.Elements, ColorPicker)
-    return ColorPicker
-end
-
--- =================================================
--- Componentes utilitários
--- =================================================
-
-function GroupBox:AddTitle(text)
-    local Title = {
-        Text = text,
-        Offset = self.ContentY,
-        Size = {Width = self.Size.Width - 20, Height = 30}
-    }
-    
-    -- Incrementar ContentY para próximo elemento
-    self.ContentY = self.ContentY + Title.Size.Height
-    self.Size.Height = self.Size.Height + Title.Size.Height
-
-    function Title:Render(x, y)
-        -- Desenhar texto
-        SevereUI.DrawString(
-            {x, y + self.Offset + 5},
-            SevereUI.FontColor,
-            self.Text
-        )
-        
-        -- Desenhar linha separadora
-        SevereUI.DrawFilledBox(
-            {x, y + self.Offset + 25},
-            {x + self.Size.Width, y + self.Offset + 26},
-            SevereUI.AccentColor
-        )
-    end
-    
-    table.insert(self.Elements, Title)
-    return Title
-end
-
-function GroupBox:AddLabel(text, color)
-    local Label = {
-        Text = text,
-        Color = color or SevereUI.FontColor,
-        Offset = self.ContentY,
-        Size = {Width = self.Size.Width - 20, Height = 20}
-    }
-    
-    -- Incrementar ContentY para próximo elemento
-    self.ContentY = self.ContentY + Label.Size.Height
-    self.Size.Height = self.Size.Height + Label.Size.Height
-
-    function Label:Render(x, y)
-        -- Desenhar texto
-        SevereUI.DrawString(
-            {x, y + self.Offset + 3},
-            self.Color,
-            self.Text
-        )
-    end
-    
-    table.insert(self.Elements, Label)
-    return Label
-end
-
-function GroupBox:AddSeparator()
-    local Separator = {
-        Offset = self.ContentY,
-        Size = {Width = self.Size.Width - 20, Height = 10}
-    }
-    
-    -- Incrementar ContentY para próximo elemento
-    self.ContentY = self.ContentY + Separator.Size.Height
-    self.Size.Height = self.Size.Height + Separator.Size.Height
-
-    function Separator:Render(x, y)
-        -- Desenhar linha
-        SevereUI.DrawFilledBox(
-            {x, y + self.Offset + 5},
-            {x + self.Size.Width, y + self.Offset + 6},
-            SevereUI.OutlineColor
-        )
-    end
-    
-    table.insert(self.Elements, Separator)
-    return Separator
-end
-
-function GroupBox:AddBlank(size)
-    local Blank = {
-        Offset = self.ContentY,
-        Size = {Width = self.Size.Width - 20, Height = size or 10}
-    }
-    
-    -- Incrementar ContentY para próximo elemento
-    self.ContentY = self.ContentY + Blank.Size.Height
-    self.Size.Height = self.Size.Height + Blank.Size.Height
-
-    function Blank:Render(x, y)
-        -- Elemento em branco, não renderiza nada
-    end
-    
-    table.insert(self.Elements, Blank)
-    return Blank
-end
-
--- =================================================
--- Sistema de loop principal
--- =================================================
-
--- Função principal de atualização
-function SevereUI.Update()
-    -- Atualizar estado do mouse
-    SevereUI.Mouse.Position = {GetMousePosition()}
-    local prevLeftPressed = SevereUI.Mouse.LeftPressed
-    local prevRightPressed = SevereUI.Mouse.RightPressed
-    
-    SevereUI.Mouse.LeftPressed = IsMouseDown(0) -- Botão esquerdo
-    SevereUI.Mouse.RightPressed = IsMouseDown(1) -- Botão direito
-    
-    -- Detectar cliques (pressed → released)
-    SevereUI.Mouse.LeftClicked = prevLeftPressed and not SevereUI.Mouse.LeftPressed
-    SevereUI.Mouse.RightClicked = prevRightPressed and not SevereUI.Mouse.RightPressed
-end
-
--- Função principal de renderização
-function SevereUI.Render()
-    for _, window in ipairs(SevereUI.Windows) do
-        window:Render()
-    end
-end
-
--- Loop principal (apenas exemplo, deve ser chamado pelo usuário)
-function SevereUI.MainLoop()
-    while true do
-        SevereUI.Update()
-        SevereUI.Render()
-        wait(0.01) -- 100 FPS
-    end
-end
-
--- Retornar a biblioteca para uso
 return SevereUI
