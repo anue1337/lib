@@ -1,0 +1,607 @@
+local esp = {}
+
+local function box_3d(pos1, pos2, box_color)
+	assert(
+		type(pos1) == "table" and #pos1 == 3,
+		"[Error] Box3d: First Argument needs to be a table with 3 position values!"
+	)
+	assert(
+		type(pos2) == "table" and #pos2 == 3,
+		"[Error] Box3d: Second Argument needs to be a table with 3 position values!"
+	)
+	assert(
+		type(box_color) == "table" and #box_color == 3,
+		"[Error] Box3d: Third Argument needs to be a table with 3 RGB values!"
+	)
+
+	local box_points = {
+		{pos1[1], pos1[2], pos1[3]}, 
+		{pos2[1], pos1[2], pos1[3]}, 
+		{pos2[1], pos1[2], pos2[3]}, 
+		{pos1[1], pos1[2], pos2[3]}, 
+		{pos1[1], pos2[2], pos1[3]}, 
+		{pos2[1], pos2[2], pos1[3]}, 
+		{pos2[1], pos2[2], pos2[3]}, 
+		{pos1[1], pos2[2], pos2[3]}  
+	}
+
+	local connections = {
+		{1, 2}, {2, 3}, {3, 4}, {4, 1}, 
+		{5, 6}, {6, 7}, {7, 8}, {8, 5}, 
+		{1, 5}, {2, 6}, {3, 7}, {4, 8}  
+	}
+
+	local box_lines = {}
+
+	for _, connection in ipairs(connections) do
+		local point1 = box_points[connection[1]]
+		local point2 = box_points[connection[2]]
+
+		local screen_pos1 = worldtoscreenpoint({x = point1[1], y = point1[2], z = point1[3]})
+		local screen_pos2 = worldtoscreenpoint({x = point2[1], y = point2[2], z = point2[3]})
+
+		if screen_pos1 and screen_pos2 then
+			local line = Drawing.new("Line")
+			line.From = {screen_pos1.x, screen_pos1.y}
+			line.To = {screen_pos2.x, screen_pos2.y}
+			line.Color = box_color
+			line.Thickness = 1
+			line.Transparency = 1
+			line.Visible = true
+
+			table.insert(box_lines, line)
+		end
+	end
+
+	return box_lines
+end
+
+local function get_distance(part)
+	local localplayer = getlocalplayer()
+	local character = getcharacter(localplayer)
+	local humanoidRootPart = findfirstchild(character, "HumanoidRootPart")
+
+	local v1 = getposition(humanoidRootPart)
+	local v2 = part
+
+	local a = (v1.x - v2.x) * (v1.x - v2.x)
+	local b = (v1.y - v2.y) * (v1.y - v2.y)
+	local c = (v1.z - v2.z) * (v1.z - v2.z)
+
+	return math.floor(math.sqrt(a + b + c) + 0.5)
+end
+
+function esp.ground_circle(params)
+	local target = params.target or nil
+	local radius = params.radius or 10
+	local color = params.color or {255, 255, 255}
+	local steps = params.steps or 36
+
+	if target == nil then
+		print("[Error] GroundCircle: Target can't be nil")
+		return
+	end
+
+	local pi = math.pi
+	local position = getposition(target)
+	local circle_lines = {}
+
+	for i = 0, steps - 1 do
+		local angle_1 = (2 * pi * i) / steps
+		local angle_2 = (2 * pi * (i + 1)) / steps
+
+		local point_1 = {
+			x = position.x + radius * math.cos(angle_1),
+			y = position.y,
+			z = position.z + radius * math.sin(angle_1),
+		}
+		local point_2 = {
+			x = position.x + radius * math.cos(angle_2),
+			y = position.y,
+			z = position.z + radius * math.sin(angle_2),
+		}
+
+		local screen_1 = worldtoscreenpoint({x = point_1.x, y = point_1.y, z = point_1.z})
+		local screen_2 = worldtoscreenpoint({x = point_2.x, y = point_2.y, z = point_2.z})
+
+		if screen_1 and screen_2 and screen_1.x and screen_2.x then
+			local line = Drawing.new("Line")
+			line.From = {screen_1.x, screen_1.y}
+			line.To = {screen_2.x, screen_2.y}
+			line.Color = color
+			line.Thickness = 1
+			line.Transparency = 1
+			line.Visible = true
+
+			table.insert(circle_lines, line)
+		end
+	end
+
+	return circle_lines
+end
+
+function esp.circle(params)
+	local target = params.target or nil
+	local nametag = params.nametag or false
+	local radius = params.radius or 5
+	local color = params.color or {255, 255, 255}
+
+	if target == nil then
+		print("[Error] CircleESP: Target can't be nil")
+		return false
+	end
+
+	local position = getposition(target)
+	local screen_pos = worldtoscreenpoint({x = position.x, y = position.y, z = position.z})
+
+	if not screen_pos or not screen_pos.x then
+		return
+	end
+
+	local elements = {}
+
+	if nametag then
+		local text = Drawing.new("Text")
+		text.Text = nametag
+		text.Position = {screen_pos.x - (text.TextBounds.x / 2), screen_pos.y + 20}
+		text.Color = color
+		text.Size = 13
+		text.Center = true
+		text.Outline = true
+		text.Visible = true
+
+		table.insert(elements, text)
+	end
+
+	local circle = Drawing.new("Circle")
+	circle.Position = {screen_pos.x, screen_pos.y}
+	circle.Radius = radius
+	circle.Color = color
+	circle.Thickness = 1
+	circle.Transparency = 1
+	circle.Visible = true
+
+	table.insert(elements, circle)
+
+	return elements
+end
+
+function esp.draw(params)
+	local target = params.target or nil
+	local esp_type = params.esp_type or nil
+	local box_color = params.color or {255, 255, 255}
+	local healthbar = params.healthbar or false
+	local distance = params.distance or false
+	local nametag = params.nametag or false
+	local custom_nametag = params.custom_nametag or false
+	local custom_distance = params.custom_distance or nil
+	local custom_root = params.custom_root or "HumanoidRootPart"
+	local custom_size = params.custom_size or nil
+	local tracer = params.tracer or false
+	local tracertype = params.tracer_type or 1 
+	local box_type = params.box_type or 1 
+
+	assert(
+		type(tracertype) == "number" and (tracertype == 1 or tracertype == 2 or tracertype == 3 or tracertype == 4),
+		"[Error] BoxESP: TracerType Argument needs to be a number! (1 - 4)"
+	)
+	assert(
+		type(box_type) == "number" and (box_type == 1 or box_type == 2 or box_type == 3),
+		"[Error] BoxESP: BoxType Argument needs to be a number! (1 - 3)"
+	)
+	assert(
+		type(target) == "number" or type(target) == "userdata",
+		"[Error] BoxESP: Target Argument needs to be a userdata or number (pointer) to character!"
+	)
+	assert(
+		type(box_color) == "table" and #box_color == 3,
+		"[Error] BoxESP: Color Argument needs to be a table with 3 RGB values!"
+	)
+
+	local elements = {}
+
+	if esp_type == "misc" then
+		local position = getposition(target)
+		local offset_top = 3
+		local offset_bottom = 3
+		local custom_width = nil
+
+		if custom_size then
+			offset_top = custom_size.top or offset_top
+			offset_bottom = custom_size.bottom or offset_bottom
+			custom_width = custom_size.width
+		end
+
+		local topPoint = worldtoscreenpoint({x = position.x, y = position.y + offset_top, z = position.z})
+		local bottomPoint = worldtoscreenpoint({x = position.x, y = position.y - offset_bottom, z = position.z})
+
+		if not topPoint or not bottomPoint then
+			return elements
+		end
+
+		local height = math.abs(topPoint.y - bottomPoint.y)
+		local width = custom_width or (height / 2)
+
+		if box_type == 1 then 
+
+			local line1 = Drawing.new("Line")
+			line1.From = {topPoint.x + width, topPoint.y}
+			line1.To = {topPoint.x + (width / 2), topPoint.y}
+			line1.Color = box_color
+			line1.Thickness = 1
+			line1.Transparency = 1
+			line1.Visible = true
+			table.insert(elements, line1)
+
+			local line2 = Drawing.new("Line")
+			line2.From = {topPoint.x + width, topPoint.y}
+			line2.To = {topPoint.x + width, topPoint.y + (height / 4)}
+			line2.Color = box_color
+			line2.Thickness = 1
+			line2.Transparency = 1
+			line2.Visible = true
+			table.insert(elements, line2)
+
+			local line3 = Drawing.new("Line")
+			line3.From = {topPoint.x - width, topPoint.y}
+			line3.To = {topPoint.x - (width / 2), topPoint.y}
+			line3.Color = box_color
+			line3.Thickness = 1
+			line3.Transparency = 1
+			line3.Visible = true
+			table.insert(elements, line3)
+
+			local line4 = Drawing.new("Line")
+			line4.From = {topPoint.x - width, topPoint.y}
+			line4.To = {topPoint.x - width, topPoint.y + (height / 4)}
+			line4.Color = box_color
+			line4.Thickness = 1
+			line4.Transparency = 1
+			line4.Visible = true
+			table.insert(elements, line4)
+
+			local line5 = Drawing.new("Line")
+			line5.From = {bottomPoint.x + width, bottomPoint.y}
+			line5.To = {bottomPoint.x + (width / 2), bottomPoint.y}
+			line5.Color = box_color
+			line5.Thickness = 1
+			line5.Transparency = 1
+			line5.Visible = true
+			table.insert(elements, line5)
+
+			local line6 = Drawing.new("Line")
+			line6.From = {bottomPoint.x + width, bottomPoint.y}
+			line6.To = {bottomPoint.x + width, bottomPoint.y - (height / 4)}
+			line6.Color = box_color
+			line6.Thickness = 1
+			line6.Transparency = 1
+			line6.Visible = true
+			table.insert(elements, line6)
+
+			local line7 = Drawing.new("Line")
+			line7.From = {bottomPoint.x - width, bottomPoint.y}
+			line7.To = {bottomPoint.x - (width / 2), bottomPoint.y}
+			line7.Color = box_color
+			line7.Thickness = 1
+			line7.Transparency = 1
+			line7.Visible = true
+			table.insert(elements, line7)
+
+			local line8 = Drawing.new("Line")
+			line8.From = {bottomPoint.x - width, bottomPoint.y}
+			line8.To = {bottomPoint.x - width, bottomPoint.y - (height / 4)}
+			line8.Color = box_color
+			line8.Thickness = 1
+			line8.Transparency = 1
+			line8.Visible = true
+			table.insert(elements, line8)
+
+		elseif box_type == 2 then 
+			local square = Drawing.new("Square")
+			square.Position = {bottomPoint.x - width, topPoint.y}
+			square.Size = {width * 2, height}
+			square.Color = box_color
+			square.Thickness = 1
+			square.Transparency = 1
+			square.Filled = false
+			square.Visible = true
+			table.insert(elements, square)
+		else 
+			local box_elements = box_3d(
+				{position.x - 2, position.y + 2, position.z - 2},
+				{position.x + 2, position.y - 2, position.z + 2},
+				box_color
+			)
+
+			for _, element in ipairs(box_elements) do
+				table.insert(elements, element)
+			end
+		end
+
+		if nametag and custom_nametag then
+			local name = custom_nametag
+			local text = Drawing.new("Text")
+			text.Text = name
+			text.Position = {topPoint.x - (text.TextBounds.x / 2), topPoint.y - 20}
+			text.Color = box_color
+			text.Size = 13
+			text.Center = true
+			text.Outline = true
+			text.Visible = true
+			table.insert(elements, text)
+		end
+
+		if distance then
+			local dist = custom_distance or get_distance(position)
+			local text = Drawing.new("Text")
+			text.Text = tostring(dist)
+			text.Position = {bottomPoint.x - (text.TextBounds.x / 2), bottomPoint.y}
+			text.Color = box_color
+			text.Size = 13
+			text.Center = true
+			text.Outline = true
+			text.Visible = true
+			table.insert(elements, text)
+		end
+
+		if tracer then
+			local screen_dimensions = getscreendimensions()
+			local start_pos
+
+			if tracertype == 1 then
+				start_pos = {screen_dimensions.x / 2, screen_dimensions.y / 1.1}
+			elseif tracertype == 2 then
+				start_pos = {screen_dimensions.x / 2, screen_dimensions.y}
+			elseif tracertype == 3 then
+				start_pos = {screen_dimensions.x / 2, 1}
+			else
+				local mouse_pos = getmouseposition()
+				start_pos = {mouse_pos.x, mouse_pos.y}
+			end
+
+			local center_x = topPoint.x + width + (((bottomPoint.x - width) - (topPoint.x + width)) / 2)
+
+			if center_x and bottomPoint.y then
+				local line = Drawing.new("Line")
+				line.From = start_pos
+				line.To = {center_x, bottomPoint.y}
+				line.Color = box_color
+				line.Thickness = 1
+				line.Transparency = 1
+				line.Visible = true
+				table.insert(elements, line)
+			end
+		}
+	else
+		local rootPart = findfirstchild(target, custom_root)
+
+		if rootPart then
+			local torso = getposition(rootPart)
+			local HeadPosY = torso.y + 2.5
+			local LegPosY = torso.y - 3.5
+
+			local topPoint = worldtoscreenpoint({x = torso.x, y = HeadPosY, z = torso.z})
+			local bottomPoint = worldtoscreenpoint({x = torso.x, y = LegPosY, z = torso.z})
+
+			if not topPoint or not bottomPoint then
+				return elements
+			}
+
+			local height = topPoint.y - bottomPoint.y
+			local width = (height / 2) / 1.2
+
+			if box_type == 1 then 
+
+				local line1 = Drawing.new("Line")
+				line1.From = {topPoint.x + width + 2, topPoint.y}
+				line1.To = {topPoint.x + (width / 2) + 2, topPoint.y}
+				line1.Color = box_color
+				line1.Thickness = 1
+				line1.Transparency = 1
+				line1.Visible = true
+				table.insert(elements, line1)
+
+				local line2 = Drawing.new("Line")
+				line2.From = {topPoint.x + width + 2, topPoint.y}
+				line2.To = {topPoint.x + width + 2, topPoint.y - (height / 4)}
+				line2.Color = box_color
+				line2.Thickness = 1
+				line2.Transparency = 1
+				line2.Visible = true
+				table.insert(elements, line2)
+
+				local line3 = Drawing.new("Line")
+				line3.From = {bottomPoint.x - width, topPoint.y}
+				line3.To = {bottomPoint.x - (width / 2), topPoint.y}
+				line3.Color = box_color
+				line3.Thickness = 1
+				line3.Transparency = 1
+				line3.Visible = true
+				table.insert(elements, line3)
+
+				local line4 = Drawing.new("Line")
+				line4.From = {bottomPoint.x - width, topPoint.y}
+				line4.To = {bottomPoint.x - width, topPoint.y - (height / 4)}
+				line4.Color = box_color
+				line4.Thickness = 1
+				line4.Transparency = 1
+				line4.Visible = true
+				table.insert(elements, line4)
+
+				local line5 = Drawing.new("Line")
+				line5.From = {topPoint.x + width + 2, bottomPoint.y}
+				line5.To = {topPoint.x + (width / 2) + 2, bottomPoint.y}
+				line5.Color = box_color
+				line5.Thickness = 1
+				line5.Transparency = 1
+				line5.Visible = true
+				table.insert(elements, line5)
+
+				local line6 = Drawing.new("Line")
+				line6.From = {topPoint.x + width + 2, bottomPoint.y}
+				line6.To = {topPoint.x + width + 2, bottomPoint.y + (height / 4)}
+				line6.Color = box_color
+				line6.Thickness = 1
+				line6.Transparency = 1
+				line6.Visible = true
+				table.insert(elements, line6)
+
+				local line7 = Drawing.new("Line")
+				line7.From = {bottomPoint.x - width, bottomPoint.y}
+				line7.To = {bottomPoint.x - (width / 2), bottomPoint.y}
+				line7.Color = box_color
+				line7.Thickness = 1
+				line7.Transparency = 1
+				line7.Visible = true
+				table.insert(elements, line7)
+
+				local line8 = Drawing.new("Line")
+				line8.From = {bottomPoint.x - width, bottomPoint.y}
+				line8.To = {bottomPoint.x - width, bottomPoint.y + (height / 4)}
+				line8.Color = box_color
+				line8.Thickness = 1
+				line8.Transparency = 1
+				line8.Visible = true
+				table.insert(elements, line8)
+
+			elseif box_type == 2 then 
+				local square = Drawing.new("Square")
+				square.Position = {bottomPoint.x - width, topPoint.y}
+				square.Size = {width * 2, height}
+				square.Color = box_color
+				square.Thickness = 1
+				square.Transparency = 1
+				square.Filled = false
+				square.Visible = true
+				table.insert(elements, square)
+			else 
+				local box_elements = box_3d(
+					{torso.x - 2, HeadPosY, torso.z - 2},
+					{torso.x + 2, LegPosY, torso.z + 2},
+					box_color
+				)
+
+				for _, element in ipairs(box_elements) do
+					table.insert(elements, element)
+				end
+			end
+
+			if healthbar then
+				local humanoid = findfirstchild(target, "Humanoid")
+
+				if humanoid then
+					local hp = gethealth(humanoid)
+					local maxhp = getmaxhealth(humanoid)
+
+					local tl = {topPoint.x + width - 5, topPoint.y + 1}
+					local br = {topPoint.x + width - 1, bottomPoint.y - 1}
+
+					local outer = Drawing.new("Square")
+					outer.Position = {tl[1] - 1, tl[2] - 1}
+					outer.Size = {(br[1] - tl[1]) + 2, (br[2] - tl[2]) + 2}
+					outer.Color = box_color
+					outer.Thickness = 1
+					outer.Filled = false
+					outer.Transparency = 1
+					outer.Visible = true
+					table.insert(elements, outer)
+
+					local back = Drawing.new("Square")
+					back.Position = {tl[1], tl[2]}
+					back.Size = {br[1] - tl[1], br[2] - tl[2]}
+					back.Color = {0, 0, 0}
+					back.Filled = true
+					back.Transparency = 1
+					back.Visible = true
+					table.insert(elements, back)
+
+					local addon = ((height + 2) / (maxhp / math.max(0, math.min(maxhp, hp))))
+					local health_bar = Drawing.new("Square")
+					health_bar.Position = {tl[1] + 1, br[2] - 1}
+					health_bar.Size = {br[1] - tl[1] - 2, addon}
+					health_bar.Color = {255 - 255 / (maxhp / hp), 255 / (maxhp / hp), 0}
+					health_bar.Filled = true
+					health_bar.Transparency = 1
+					health_bar.Visible = true
+					table.insert(elements, health_bar)
+				end
+			end
+
+			if distance then
+				local dist = custom_distance or get_distance(torso)
+				local text = Drawing.new("Text")
+				text.Text = tostring(dist)
+				text.Position = {bottomPoint.x - (text.TextBounds.x / 2), bottomPoint.y}
+				text.Color = box_color
+				text.Size = 13
+				text.Center = true
+				text.Outline = true
+				text.Visible = true
+				table.insert(elements, text)
+			end
+
+			if nametag then
+				local name = getname(target)
+
+				if custom_nametag then
+					name = custom_nametag
+				end
+
+				local text = Drawing.new("Text")
+				text.Text = name
+				text.Position = {topPoint.x - (text.TextBounds.x / 2), topPoint.y - 20}
+				text.Color = box_color
+				text.Size = 13
+				text.Center = true
+				text.Outline = true
+				text.Visible = true
+				table.insert(elements, text)
+			end
+
+			if tracer then
+				local screen_dimensions = getscreendimensions()
+				local start_pos
+
+				if tracertype == 1 then
+					start_pos = {screen_dimensions.x / 2, screen_dimensions.y / 1.1}
+				elseif tracertype == 2 then
+					start_pos = {screen_dimensions.x / 2, screen_dimensions.y}
+				elseif tracertype == 3 then
+					start_pos = {screen_dimensions.x / 2, 1}
+				else
+					local mouse_pos = getmouseposition()
+					start_pos = {mouse_pos.x, mouse_pos.y}
+				end
+
+				local center_x = topPoint.x + width + (((bottomPoint.x - width) - (topPoint.x + width)) / 2)
+
+				if center_x and bottomPoint.y then
+					local line = Drawing.new("Line")
+					line.From = start_pos
+					line.To = {center_x, bottomPoint.y}
+					line.Color = box_color
+					line.Thickness = 1
+					line.Transparency = 1
+					line.Visible = true
+					table.insert(elements, line)
+				end
+			end
+		else
+			print("[Error] BoxESP: Passed in target has no " .. custom_root)
+		end
+	end
+
+	return elements
+end
+
+function esp.clear_elements(elements)
+	if not elements then return end
+
+	for _, element in ipairs(elements) do
+		if element.Remove then
+			element:Remove()
+		end
+	end
+end
+
+return esp
