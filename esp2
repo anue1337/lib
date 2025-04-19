@@ -1,15 +1,31 @@
 local esp = {}
 
+-- Armazenar todas as instâncias de desenho para limpeza
+esp.drawings = {}
+
+-- Função para limpar todos os desenhos
+function esp.clear_drawings()
+    for _, drawing in ipairs(esp.drawings) do
+        if drawing and typeof(drawing) == "userdata" and drawing.Destroy then
+            pcall(function()
+                drawing:Destroy()
+            end)
+        end
+    end
+    esp.drawings = {}
+end
+
 -- Função para desenhar círculo no chão
 function esp.ground_circle(params)
     local target = params.target or nil
     local radius = params.radius or 10
     local color = params.color or { 255, 255, 255 }
     local steps = params.steps or 36
+    local results = {}
 
     if target == nil then
         print("[Error] GroundCircle: Target can't be nil")
-        return
+        return results
     end
 
     local pi = math.pi
@@ -41,8 +57,13 @@ function esp.ground_circle(params)
             line.Visible = true
             line.Thickness = 1
             line.Transparency = 1
+
+            table.insert(esp.drawings, line)
+            table.insert(results, line)
         end
     end
+    
+    return results
 end
 
 -- Função para desenhar círculo simples
@@ -51,10 +72,11 @@ function esp.circle(params)
     local nametag = params.nametag or false
     local radius = params.radius or 5
     local color = params.color or { 255, 255, 255 }
+    local results = {}
 
     if target == nil then
         print("[Error] CircleESP: Target can't be nil")
-        return false
+        return results
     end
 
     local position = getposition(target)
@@ -69,6 +91,9 @@ function esp.circle(params)
         circle.Transparency = 1
         circle.NumSides = 36
         circle.Thickness = 1
+        
+        table.insert(esp.drawings, circle)
+        table.insert(results, circle)
 
         if nametag then
             local text = Drawing.new("Text")
@@ -78,8 +103,13 @@ function esp.circle(params)
             text.Size = 12
             text.Visible = true
             text.Outline = true
+            
+            table.insert(esp.drawings, text)
+            table.insert(results, text)
         end
     end
+    
+    return results
 end
 
 -- Função para calcular distância
@@ -109,21 +139,22 @@ function esp.draw(params)
     local tracer = params.tracer or false
     local tracertype = params.tracer_type or 1 -- 1 = near-bottom, 2 = bottom, 3 = top, 4 = Mouse
     local box_type = params.box_type or 1 -- 1 = corners, 2 = 2d box
+    local results = {}
 
     -- Verificação de erros
     if target == nil then
         print("[Error] BoxESP: Target Argument can't be nil")
-        return false
+        return results
     end
 
     if not (box_type == 1 or box_type == 2) then
         print("[Error] BoxESP: BoxType Argument needs to be a number! (1 - 2)")
-        return false
+        return results
     end
 
     if not (tracertype == 1 or tracertype == 2 or tracertype == 3 or tracertype == 4) then
         print("[Error] BoxESP: TracerType Argument needs to be a number! (1 - 4)")
-        return false
+        return results
     end
 
     -- ESP para objetos miscelâneos
@@ -192,6 +223,9 @@ function esp.draw(params)
                     line.Visible = true
                     line.Thickness = 1
                     line.Transparency = 1
+                    
+                    table.insert(esp.drawings, line)
+                    table.insert(results, line)
                 end
             elseif box_type == 2 then -- 2d box
                 local box = Drawing.new("Square")
@@ -202,6 +236,9 @@ function esp.draw(params)
                 box.Filled = false
                 box.Thickness = 1
                 box.Transparency = 1
+                
+                table.insert(esp.drawings, box)
+                table.insert(results, box)
             end
 
             -- Desenhar nome personalizado
@@ -213,6 +250,9 @@ function esp.draw(params)
                 text.Size = 12
                 text.Visible = true
                 text.Outline = true
+                
+                table.insert(esp.drawings, text)
+                table.insert(results, text)
             end
 
             -- Desenhar distância
@@ -225,6 +265,9 @@ function esp.draw(params)
                 text.Size = 12
                 text.Visible = true
                 text.Outline = true
+                
+                table.insert(esp.drawings, text)
+                table.insert(results, text)
             end
 
             -- Desenhar tracer
@@ -250,6 +293,9 @@ function esp.draw(params)
                 line.Visible = true
                 line.Thickness = 1
                 line.Transparency = 1
+                
+                table.insert(esp.drawings, line)
+                table.insert(results, line)
             end
         end
     else
@@ -315,6 +361,9 @@ function esp.draw(params)
                         line.Visible = true
                         line.Thickness = 1
                         line.Transparency = 1
+                        
+                        table.insert(esp.drawings, line)
+                        table.insert(results, line)
                     end
                 elseif box_type == 2 then -- 2d box
                     local box = Drawing.new("Square")
@@ -325,6 +374,9 @@ function esp.draw(params)
                     box.Filled = false
                     box.Thickness = 1
                     box.Transparency = 1
+                    
+                    table.insert(esp.drawings, box)
+                    table.insert(results, box)
                 end
 
                 -- Barra de vida
@@ -342,6 +394,9 @@ function esp.draw(params)
                         health_bg.Filled = true
                         health_bg.Visible = true
                         health_bg.Transparency = 1
+                        
+                        table.insert(esp.drawings, health_bg)
+                        table.insert(results, health_bg)
 
                         local health_fill_height = (height / maxhp) * hp
                         local health_y_offset = height - health_fill_height
@@ -353,6 +408,9 @@ function esp.draw(params)
                         health_fill.Filled = true
                         health_fill.Visible = true
                         health_fill.Transparency = 1
+                        
+                        table.insert(esp.drawings, health_fill)
+                        table.insert(results, health_fill)
                     end
                 end
 
@@ -371,6 +429,9 @@ function esp.draw(params)
                     text.Size = 12
                     text.Visible = true
                     text.Outline = true
+                    
+                    table.insert(esp.drawings, text)
+                    table.insert(results, text)
                 end
 
                 -- Distância
@@ -383,6 +444,9 @@ function esp.draw(params)
                     text.Size = 12
                     text.Visible = true
                     text.Outline = true
+                    
+                    table.insert(esp.drawings, text)
+                    table.insert(results, text)
                 end
 
                 -- Tracer
@@ -408,12 +472,17 @@ function esp.draw(params)
                     line.Visible = true
                     line.Thickness = 1
                     line.Transparency = 1
+                    
+                    table.insert(esp.drawings, line)
+                    table.insert(results, line)
                 end
             end
         else
             print("[Error] BoxESP: Target has no " .. custom_root)
         end
     end
+    
+    return results
 end
 
 return esp
