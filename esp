@@ -120,25 +120,31 @@ function esp.ground_circle(params)
 	return circle_lines
 end
 
+-- Na função circle, adicione uma verificação adicional
 function esp.circle(params)
-	local target = params.target or nil
-	local nametag = params.nametag or false
-	local radius = params.radius or 5
-	local color = params.color or {255, 255, 255}
+    local target = params.target or nil
+    local nametag = params.nametag or false
+    local radius = params.radius or 5
+    local color = params.color or {255, 255, 255}
 
-	if target == nil then
-		print("[Error] CircleESP: Target can't be nil")
-		return false
-	end
+    if target == nil then
+        print("[Error] CircleESP: Target can't be nil")
+        return {}  
+    end
 
-	local position = getposition(target)
-	local screen_pos = worldtoscreenpoint({x = position.x, y = position.y, z = position.z})
+    local position = getposition(target)
+    if not position then
+        return {}  
+    end
+    
+    local screen_pos = worldtoscreenpoint({x = position.x, y = position.y, z = position.z})
 
-	if not screen_pos or not screen_pos.x then
-		return
-	end
+    if not screen_pos or not screen_pos.x then
+        return {}  
+    end
 
-	local elements = {}
+    local elements = {}
+
 
 	if nametag then
 		local text = Drawing.new("Text")
