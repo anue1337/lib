@@ -3,6 +3,9 @@ local esp = {}
 -- Armazenar todas as instâncias de desenho para limpeza
 esp.drawings = {}
 
+-- Mapear objetos para seus desenhos
+esp.object_drawings = {}
+
 -- Função para limpar todos os desenhos
 function esp.clear_drawings()
     for _, drawing in ipairs(esp.drawings) do
@@ -13,6 +16,29 @@ function esp.clear_drawings()
         end
     end
     esp.drawings = {}
+    esp.object_drawings = {}
+end
+
+-- Função para limpar desenhos específicos de um objeto
+function esp.clear_object_drawings(object)
+    if esp.object_drawings[object] then
+        for _, drawing in ipairs(esp.object_drawings[object]) do
+            if drawing and typeof(drawing) == "userdata" and drawing.Destroy then
+                pcall(function()
+                    drawing:Destroy()
+                end)
+            end
+            
+            -- Também remover da lista principal de desenhos
+            for i, mainDrawing in ipairs(esp.drawings) do
+                if mainDrawing == drawing then
+                    table.remove(esp.drawings, i)
+                    break
+                end
+            end
+        end
+        esp.object_drawings[object] = nil
+    end
 end
 
 -- Função para desenhar círculo no chão
@@ -27,6 +53,9 @@ function esp.ground_circle(params)
         print("[Error] GroundCircle: Target can't be nil")
         return results
     end
+
+    -- Limpar desenhos antigos para este objeto
+    esp.clear_object_drawings(target)
 
     local pi = math.pi
     local position = getposition(target)
@@ -60,6 +89,12 @@ function esp.ground_circle(params)
 
             table.insert(esp.drawings, line)
             table.insert(results, line)
+            
+            -- Adicionar à lista específica do objeto
+            if not esp.object_drawings[target] then
+                esp.object_drawings[target] = {}
+            end
+            table.insert(esp.object_drawings[target], line)
         end
     end
     
@@ -79,6 +114,9 @@ function esp.circle(params)
         return results
     end
 
+    -- Limpar desenhos antigos para este objeto
+    esp.clear_object_drawings(target)
+
     local position = getposition(target)
     local world_to_screen, onscreen = worldtoscreenpoint({position.x, position.y, position.z})
 
@@ -94,6 +132,12 @@ function esp.circle(params)
         
         table.insert(esp.drawings, circle)
         table.insert(results, circle)
+        
+        -- Adicionar à lista específica do objeto
+        if not esp.object_drawings[target] then
+            esp.object_drawings[target] = {}
+        end
+        table.insert(esp.object_drawings[target], circle)
 
         if nametag then
             local text = Drawing.new("Text")
@@ -106,6 +150,7 @@ function esp.circle(params)
             
             table.insert(esp.drawings, text)
             table.insert(results, text)
+            table.insert(esp.object_drawings[target], text)
         end
     end
     
@@ -146,6 +191,9 @@ function esp.draw(params)
         print("[Error] BoxESP: Target Argument can't be nil")
         return results
     end
+
+    -- Limpar desenhos antigos para este objeto
+    esp.clear_object_drawings(target)
 
     if not (box_type == 1 or box_type == 2) then
         print("[Error] BoxESP: BoxType Argument needs to be a number! (1 - 2)")
@@ -226,6 +274,12 @@ function esp.draw(params)
                     
                     table.insert(esp.drawings, line)
                     table.insert(results, line)
+                    
+                    -- Adicionar à lista específica do objeto
+                    if not esp.object_drawings[target] then
+                        esp.object_drawings[target] = {}
+                    end
+                    table.insert(esp.object_drawings[target], line)
                 end
             elseif box_type == 2 then -- 2d box
                 local box = Drawing.new("Square")
@@ -239,6 +293,12 @@ function esp.draw(params)
                 
                 table.insert(esp.drawings, box)
                 table.insert(results, box)
+                
+                -- Adicionar à lista específica do objeto
+                if not esp.object_drawings[target] then
+                    esp.object_drawings[target] = {}
+                end
+                table.insert(esp.object_drawings[target], box)
             end
 
             -- Desenhar nome personalizado
@@ -253,6 +313,7 @@ function esp.draw(params)
                 
                 table.insert(esp.drawings, text)
                 table.insert(results, text)
+                table.insert(esp.object_drawings[target], text)
             end
 
             -- Desenhar distância
@@ -268,6 +329,7 @@ function esp.draw(params)
                 
                 table.insert(esp.drawings, text)
                 table.insert(results, text)
+                table.insert(esp.object_drawings[target], text)
             end
 
             -- Desenhar tracer
@@ -296,6 +358,7 @@ function esp.draw(params)
                 
                 table.insert(esp.drawings, line)
                 table.insert(results, line)
+                table.insert(esp.object_drawings[target], line)
             end
         end
     else
@@ -364,6 +427,12 @@ function esp.draw(params)
                         
                         table.insert(esp.drawings, line)
                         table.insert(results, line)
+                        
+                        -- Adicionar à lista específica do objeto
+                        if not esp.object_drawings[target] then
+                            esp.object_drawings[target] = {}
+                        end
+                        table.insert(esp.object_drawings[target], line)
                     end
                 elseif box_type == 2 then -- 2d box
                     local box = Drawing.new("Square")
@@ -377,6 +446,12 @@ function esp.draw(params)
                     
                     table.insert(esp.drawings, box)
                     table.insert(results, box)
+                    
+                    -- Adicionar à lista específica do objeto
+                    if not esp.object_drawings[target] then
+                        esp.object_drawings[target] = {}
+                    end
+                    table.insert(esp.object_drawings[target], box)
                 end
 
                 -- Barra de vida
@@ -397,6 +472,7 @@ function esp.draw(params)
                         
                         table.insert(esp.drawings, health_bg)
                         table.insert(results, health_bg)
+                        table.insert(esp.object_drawings[target], health_bg)
 
                         local health_fill_height = (height / maxhp) * hp
                         local health_y_offset = height - health_fill_height
@@ -411,6 +487,7 @@ function esp.draw(params)
                         
                         table.insert(esp.drawings, health_fill)
                         table.insert(results, health_fill)
+                        table.insert(esp.object_drawings[target], health_fill)
                     end
                 end
 
@@ -432,6 +509,7 @@ function esp.draw(params)
                     
                     table.insert(esp.drawings, text)
                     table.insert(results, text)
+                    table.insert(esp.object_drawings[target], text)
                 end
 
                 -- Distância
@@ -447,6 +525,7 @@ function esp.draw(params)
                     
                     table.insert(esp.drawings, text)
                     table.insert(results, text)
+                    table.insert(esp.object_drawings[target], text)
                 end
 
                 -- Tracer
@@ -475,6 +554,7 @@ function esp.draw(params)
                     
                     table.insert(esp.drawings, line)
                     table.insert(results, line)
+                    table.insert(esp.object_drawings[target], line)
                 end
             end
         else
@@ -483,6 +563,20 @@ function esp.draw(params)
     end
     
     return results
+end
+
+-- Nova função para atualizar o ESP para um objeto
+function esp.update(target, esp_params)
+    -- Limpar os desenhos antigos e criar novos
+    esp.clear_object_drawings(target)
+    return esp.draw(esp_params)
+end
+
+-- Função para atualizar todos os ESPs para uma lista de objetos
+function esp.update_all(targets_and_params)
+    for target, params in pairs(targets_and_params) do
+        esp.update(target, params)
+    end
 end
 
 return esp
