@@ -371,7 +371,7 @@ function esp.draw(params)
 				line.Visible = true
 				table.insert(elements, line)
 			end
-		}
+end
 	else
 		local rootPart = findfirstchild(target, custom_root)
 
@@ -385,7 +385,7 @@ function esp.draw(params)
 
 			if not topPoint or not bottomPoint then
 				return elements
-			}
+end
 
 			local height = topPoint.y - bottomPoint.y
 			local width = (height / 2) / 1.2
