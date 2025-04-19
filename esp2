@@ -1,0 +1,419 @@
+local esp = {}
+
+-- Função para desenhar círculo no chão
+function esp.ground_circle(params)
+    local target = params.target or nil
+    local radius = params.radius or 10
+    local color = params.color or { 255, 255, 255 }
+    local steps = params.steps or 36
+
+    if target == nil then
+        print("[Error] GroundCircle: Target can't be nil")
+        return
+    end
+
+    local pi = math.pi
+    local position = getposition(target)
+
+    for i = 0, steps - 1 do
+        local angle_1 = (2 * pi * i) / steps
+        local angle_2 = (2 * pi * (i + 1)) / steps
+
+        local point_1 = {
+            x = position.x + radius * math.cos(angle_1),
+            y = position.y,
+            z = position.z + radius * math.sin(angle_1),
+        }
+        local point_2 = {
+            x = position.x + radius * math.cos(angle_2),
+            y = position.y,
+            z = position.z + radius * math.sin(angle_2),
+        }
+
+        local screen_1, onscreen_1 = worldtoscreenpoint({point_1.x, point_1.y, point_1.z})
+        local screen_2, onscreen_2 = worldtoscreenpoint({point_2.x, point_2.y, point_2.z})
+
+        if onscreen_1 and onscreen_2 and screen_1.x and screen_2.x then
+            local line = Drawing.new("Line")
+            line.From = {screen_1.x, screen_1.y}
+            line.To = {screen_2.x, screen_2.y}
+            line.Color = color
+            line.Visible = true
+            line.Thickness = 1
+            line.Transparency = 1
+        end
+    end
+end
+
+-- Função para desenhar círculo simples
+function esp.circle(params)
+    local target = params.target or nil
+    local nametag = params.nametag or false
+    local radius = params.radius or 5
+    local color = params.color or { 255, 255, 255 }
+
+    if target == nil then
+        print("[Error] CircleESP: Target can't be nil")
+        return false
+    end
+
+    local position = getposition(target)
+    local world_to_screen, onscreen = worldtoscreenpoint({position.x, position.y, position.z})
+
+    if onscreen then
+        local circle = Drawing.new("Circle")
+        circle.Position = {world_to_screen.x, world_to_screen.y}
+        circle.Color = color
+        circle.Radius = radius
+        circle.Visible = true
+        circle.Transparency = 1
+        circle.NumSides = 36
+        circle.Thickness = 1
+
+        if nametag then
+            local text = Drawing.new("Text")
+            text.Text = nametag
+            text.Position = {world_to_screen.x - (text.TextBounds.x / 2), world_to_screen.y + 20}
+            text.Color = color
+            text.Size = 12
+            text.Visible = true
+            text.Outline = true
+        end
+    end
+end
+
+-- Função para calcular distância
+local function get_distance(part)
+    local v1 = getposition(getlocalplayer())
+    local v2 = getposition(part)
+
+    local a = (v1.x - v2.x) * (v1.x - v2.x)
+    local b = (v1.y - v2.y) * (v1.y - v2.y)
+    local c = (v1.z - v2.z) * (v1.z - v2.z)
+
+    return math.floor(math.sqrt(a + b + c) + 0.5)
+end
+
+-- Função principal para desenhar ESP
+function esp.draw(params)
+    local target = params.target or nil
+    local esp_type = params.esp_type or nil
+    local box_color = params.color or { 255, 255, 255 }
+    local healthbar = params.healthbar or false
+    local distance = params.distance or false
+    local nametag = params.nametag or false
+    local custom_nametag = params.custom_nametag or false
+    local custom_distance = params.custom_distance or nil
+    local custom_root = params.custom_root or "HumanoidRootPart"
+    local custom_size = params.custom_size or nil
+    local tracer = params.tracer or false
+    local tracertype = params.tracer_type or 1 -- 1 = near-bottom, 2 = bottom, 3 = top, 4 = Mouse
+    local box_type = params.box_type or 1 -- 1 = corners, 2 = 2d box
+
+    -- Verificação de erros
+    if target == nil then
+        print("[Error] BoxESP: Target Argument can't be nil")
+        return false
+    end
+
+    if not (box_type == 1 or box_type == 2) then
+        print("[Error] BoxESP: BoxType Argument needs to be a number! (1 - 2)")
+        return false
+    end
+
+    if not (tracertype == 1 or tracertype == 2 or tracertype == 3 or tracertype == 4) then
+        print("[Error] BoxESP: TracerType Argument needs to be a number! (1 - 4)")
+        return false
+    end
+
+    -- ESP para objetos miscelâneos
+    if esp_type == "misc" then
+        local position = getposition(target)
+        local offset_top = 3
+        local offset_bottom = 3
+        local custom_width = nil
+
+        if custom_size then
+            offset_top = custom_size.top or offset_top
+            offset_bottom = custom_size.bottom or offset_bottom
+            custom_width = custom_size.width
+        end
+
+        local top, top_onscreen = worldtoscreenpoint({position.x, position.y + offset_top, position.z})
+        local bottom, bottom_onscreen = worldtoscreenpoint({position.x, position.y - offset_bottom, position.z})
+
+        if top_onscreen and bottom_onscreen then
+            local height = math.abs(top.y - bottom.y)
+            local width = custom_width or (height / 2)
+
+            -- Desenhar box baseado no tipo
+            if box_type == 1 then -- corners
+                local corner_lines = {
+                    -- Top Left
+                    Drawing.new("Line"),
+                    Drawing.new("Line"),
+                    -- Top Right
+                    Drawing.new("Line"),
+                    Drawing.new("Line"),
+                    -- Bottom Left
+                    Drawing.new("Line"),
+                    Drawing.new("Line"),
+                    -- Bottom Right
+                    Drawing.new("Line"),
+                    Drawing.new("Line")
+                }
+
+                -- Top Left
+                corner_lines[1].From = {top.x - width, top.y}
+                corner_lines[1].To = {top.x - width / 2, top.y}
+                corner_lines[2].From = {top.x - width, top.y}
+                corner_lines[2].To = {top.x - width, top.y + height / 4}
+
+                -- Top Right
+                corner_lines[3].From = {top.x + width, top.y}
+                corner_lines[3].To = {top.x + width / 2, top.y}
+                corner_lines[4].From = {top.x + width, top.y}
+                corner_lines[4].To = {top.x + width, top.y + height / 4}
+
+                -- Bottom Left
+                corner_lines[5].From = {bottom.x - width, bottom.y}
+                corner_lines[5].To = {bottom.x - width / 2, bottom.y}
+                corner_lines[6].From = {bottom.x - width, bottom.y}
+                corner_lines[6].To = {bottom.x - width, bottom.y - height / 4}
+
+                -- Bottom Right
+                corner_lines[7].From = {bottom.x + width, bottom.y}
+                corner_lines[7].To = {bottom.x + width / 2, bottom.y}
+                corner_lines[8].From = {bottom.x + width, bottom.y}
+                corner_lines[8].To = {bottom.x + width, bottom.y - height / 4}
+
+                for _, line in ipairs(corner_lines) do
+                    line.Color = box_color
+                    line.Visible = true
+                    line.Thickness = 1
+                    line.Transparency = 1
+                end
+            elseif box_type == 2 then -- 2d box
+                local box = Drawing.new("Square")
+                box.Position = {top.x - width, top.y}
+                box.Size = {width * 2, height}
+                box.Color = box_color
+                box.Visible = true
+                box.Filled = false
+                box.Thickness = 1
+                box.Transparency = 1
+            end
+
+            -- Desenhar nome personalizado
+            if nametag and custom_nametag then
+                local text = Drawing.new("Text")
+                text.Text = custom_nametag
+                text.Position = {top.x - (text.TextBounds.x / 2), top.y - 20}
+                text.Color = box_color
+                text.Size = 12
+                text.Visible = true
+                text.Outline = true
+            end
+
+            -- Desenhar distância
+            if distance then
+                local dist = custom_distance or "" .. get_distance(target)
+                local text = Drawing.new("Text")
+                text.Text = dist
+                text.Position = {bottom.x - (text.TextBounds.x / 2), bottom.y + 5}
+                text.Color = box_color
+                text.Size = 12
+                text.Visible = true
+                text.Outline = true
+            end
+
+            -- Desenhar tracer
+            if tracer then
+                local screen_size = getscreendimensions()
+                local loc
+
+                if tracertype == 1 then
+                    loc = {screen_size.x / 2, screen_size.y / 1.1}
+                elseif tracertype == 2 then
+                    loc = {screen_size.x / 2, screen_size.y}
+                elseif tracertype == 3 then
+                    loc = {screen_size.x / 2, 1}
+                else
+                    local mouse = getmouseposition()
+                    loc = {mouse.x, mouse.y}
+                end
+
+                local line = Drawing.new("Line")
+                line.From = loc
+                line.To = {bottom.x, bottom.y}
+                line.Color = box_color
+                line.Visible = true
+                line.Thickness = 1
+                line.Transparency = 1
+            end
+        end
+    else
+        -- ESP para personagens
+        local humanoid_root_part = findfirstchild(target, custom_root)
+
+        if humanoid_root_part then
+            local root_position = getposition(humanoid_root_part)
+
+            local head_pos_y = root_position.y + 2.5
+            local leg_pos_y = root_position.y - 3.5
+
+            local top, top_onscreen = worldtoscreenpoint({root_position.x, head_pos_y, root_position.z})
+            local bottom, bottom_onscreen = worldtoscreenpoint({root_position.x, leg_pos_y, root_position.z})
+
+            if top_onscreen and bottom_onscreen then
+                local height = top.y - bottom.y
+                local width = (height / 2) / 1.2
+
+                -- Desenhar box baseado no tipo
+                if box_type == 1 then -- corners
+                    local corner_lines = {
+                        -- Top Left
+                        Drawing.new("Line"),
+                        Drawing.new("Line"),
+                        -- Top Right
+                        Drawing.new("Line"),
+                        Drawing.new("Line"),
+                        -- Bottom Left
+                        Drawing.new("Line"),
+                        Drawing.new("Line"),
+                        -- Bottom Right
+                        Drawing.new("Line"),
+                        Drawing.new("Line")
+                    }
+
+                    -- Top Left
+                    corner_lines[1].From = {top.x - width, top.y}
+                    corner_lines[1].To = {top.x - width / 2, top.y}
+                    corner_lines[2].From = {top.x - width, top.y}
+                    corner_lines[2].To = {top.x - width, top.y + height / 4}
+
+                    -- Top Right
+                    corner_lines[3].From = {top.x + width, top.y}
+                    corner_lines[3].To = {top.x + width / 2, top.y}
+                    corner_lines[4].From = {top.x + width, top.y}
+                    corner_lines[4].To = {top.x + width, top.y + height / 4}
+
+                    -- Bottom Left
+                    corner_lines[5].From = {bottom.x - width, bottom.y}
+                    corner_lines[5].To = {bottom.x - width / 2, bottom.y}
+                    corner_lines[6].From = {bottom.x - width, bottom.y}
+                    corner_lines[6].To = {bottom.x - width, bottom.y - height / 4}
+
+                    -- Bottom Right
+                    corner_lines[7].From = {bottom.x + width, bottom.y}
+                    corner_lines[7].To = {bottom.x + width / 2, bottom.y}
+                    corner_lines[8].From = {bottom.x + width, bottom.y}
+                    corner_lines[8].To = {bottom.x + width, bottom.y - height / 4}
+
+                    for _, line in ipairs(corner_lines) do
+                        line.Color = box_color
+                        line.Visible = true
+                        line.Thickness = 1
+                        line.Transparency = 1
+                    end
+                elseif box_type == 2 then -- 2d box
+                    local box = Drawing.new("Square")
+                    box.Position = {top.x - width, top.y}
+                    box.Size = {width * 2, height}
+                    box.Color = box_color
+                    box.Visible = true
+                    box.Filled = false
+                    box.Thickness = 1
+                    box.Transparency = 1
+                end
+
+                -- Barra de vida
+                if healthbar then
+                    local humanoid = findfirstchild(target, "Humanoid")
+
+                    if humanoid then
+                        local hp = gethealth(humanoid)
+                        local maxhp = getmaxhealth(humanoid)
+
+                        local health_bg = Drawing.new("Square")
+                        health_bg.Position = {top.x + width + 3, top.y}
+                        health_bg.Size = {4, height}
+                        health_bg.Color = {0, 0, 0}
+                        health_bg.Filled = true
+                        health_bg.Visible = true
+                        health_bg.Transparency = 1
+
+                        local health_fill_height = (height / maxhp) * hp
+                        local health_y_offset = height - health_fill_height
+
+                        local health_fill = Drawing.new("Square")
+                        health_fill.Position = {top.x + width + 4, top.y + health_y_offset}
+                        health_fill.Size = {2, health_fill_height}
+                        health_fill.Color = {255 - 255 / (maxhp / math.max(1, hp)), 255 / (maxhp / math.max(1, hp)), 0}
+                        health_fill.Filled = true
+                        health_fill.Visible = true
+                        health_fill.Transparency = 1
+                    end
+                end
+
+                -- Nome
+                if nametag then
+                    local name = getname(target)
+
+                    if custom_nametag then
+                        name = custom_nametag
+                    end
+
+                    local text = Drawing.new("Text")
+                    text.Text = name
+                    text.Position = {top.x - (text.TextBounds.x / 2), top.y - 20}
+                    text.Color = box_color
+                    text.Size = 12
+                    text.Visible = true
+                    text.Outline = true
+                end
+
+                -- Distância
+                if distance then
+                    local dist = custom_distance or "" .. get_distance(humanoid_root_part)
+                    local text = Drawing.new("Text")
+                    text.Text = dist
+                    text.Position = {bottom.x - (text.TextBounds.x / 2), bottom.y + 5}
+                    text.Color = box_color
+                    text.Size = 12
+                    text.Visible = true
+                    text.Outline = true
+                end
+
+                -- Tracer
+                if tracer then
+                    local screen_size = getscreendimensions()
+                    local loc
+
+                    if tracertype == 1 then
+                        loc = {screen_size.x / 2, screen_size.y / 1.1}
+                    elseif tracertype == 2 then
+                        loc = {screen_size.x / 2, screen_size.y}
+                    elseif tracertype == 3 then
+                        loc = {screen_size.x / 2, 1}
+                    else
+                        local mouse = getmouseposition()
+                        loc = {mouse.x, mouse.y}
+                    end
+
+                    local line = Drawing.new("Line")
+                    line.From = loc
+                    line.To = {bottom.x, bottom.y}
+                    line.Color = box_color
+                    line.Visible = true
+                    line.Thickness = 1
+                    line.Transparency = 1
+                end
+            end
+        else
+            print("[Error] BoxESP: Target has no " .. custom_root)
+        end
+    end
+end
+
+return esp
